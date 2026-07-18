@@ -1,0 +1,7 @@
+Resolving dependencies...
+Because frontend depends on shared_preferences ^2.9.0 which doesn't match any versions, version solving failed.
+
+
+You can try the following suggestion to make the pubspec resolve:
+* Consider downgrading your constraint on shared_preferences: flutter pub add shared_preferences:^2.5.5
+Failed to update packages.

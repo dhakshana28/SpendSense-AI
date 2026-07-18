@@ -1,0 +1,43 @@
+name: frontend
+description: "SpendSense AI - Smart Expense Management"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # Firebase
+  firebase_core: ^4.12.1
+  firebase_auth: ^6.5.6
+  cloud_firestore: ^6.7.1
+  firebase_storage: ^13.4.5
+
+  # Networking
+  http: ^1.3.2
+
+  # State management
+  provider: ^6.1.5+1
+
+  # Storage
+  shared_preferences: ^2.5.5
+
+  # Media
+  image_picker: ^1.2.3
+
+  # Internationalisation
+  intl: ^0.20.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
