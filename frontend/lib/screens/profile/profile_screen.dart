@@ -1,16 +1,9 @@
-import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../app/routes/app_routes.dart';
-import '../../providers/auth_provider.dart';
-import '../../providers/budget_provider.dart';
-import '../../providers/expense_provider.dart';
-import '../../providers/goal_provider.dart';
-import '../../providers/income_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/user_provider.dart';
-import '../../services/firebase/firebase_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -21,308 +14,285 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<UserProvider>().loadCurrentUser();
-    });
+  Widget build(BuildContext context) {
+    final userProvider = context.watch<UserProvider>();
+    final themeProvider = context.watch<ThemeProvider>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final user = userProvider.user;
+    final currentUser = firebase_auth.FirebaseAuth.instance.currentUser;
+
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 20),
+              _buildProfileHeader(context, user, currentUser, isDark),
+              const SizedBox(height: 30),
+              _buildSettingsSection(context, themeProvider, isDark, userProvider),
+              const SizedBox(height: 20),
+              _buildAccountSection(context, isDark),
+              const SizedBox(height: 40),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
-  Future<void> _editProfile() async {
-    final user = context.read<UserProvider>().user;
-    if (user == null) return;
-    final name = TextEditingController(text: user.name);
-    final income = TextEditingController(text: user.monthlyIncome.toString());
-    final budget = TextEditingController(text: user.monthlyBudget.toString());
-    var currency = user.currency;
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Edit Profile'),
-        content: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: name, decoration: const InputDecoration(labelText: 'Name')),
-            TextField(
-              controller: income,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Monthly income'),
-            ),
-            TextField(
-              controller: budget,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Monthly budget'),
-            ),
-            StatefulBuilder(
-              builder: (context, setDialogState) => DropdownButtonFormField<String>(
-                initialValue: currency,
-                decoration: const InputDecoration(labelText: 'Currency'),
-                items: const ['₹', '\$', '€', '£']
-                    .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-                    .toList(),
-                onChanged: (value) => setDialogState(() => currency = value ?? currency),
+  Widget _buildProfileHeader(BuildContext context, dynamic user, dynamic currentUser, bool isDark) {
+    final name = user?.name ?? currentUser?.displayName ?? 'User';
+    final email = user?.email ?? currentUser?.email ?? '';
+    final photoUrl = user?.photoUrl ?? currentUser?.photoURL;
+
+    return Column(
+      children: [
+        Stack(
+          alignment: Alignment.bottomRight,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFF6C63FF).withValues(alpha: 0.3),
+                  width: 3,
+                ),
+              ),
+              child: CircleAvatar(
+                radius: 50,
+                backgroundColor: isDark ? const Color(0xFF2A2A3E) : const Color(0xFFE8E8F0),
+                backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                child: photoUrl == null
+                    ? Icon(Icons.person, size: 50, color: isDark ? Colors.white60 : const Color(0xFF8E8EA0))
+                    : null,
               ),
             ),
-          ]),
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF6C63FF),
+                shape: BoxShape.circle,
+                border: Border.all(color: isDark ? const Color(0xFF0D0D1A) : Colors.white, width: 3),
+              ),
+              child: IconButton(
+                onPressed: () async {
+                  await context.read<UserProvider>().pickAndUploadProfileImage();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Profile picture updated!'), backgroundColor: Color(0xFF00D9A6)),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.camera_alt, size: 18, color: Colors.white),
+              ),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              final parsedIncome = double.tryParse(income.text) ?? 0;
-              final parsedBudget = double.tryParse(budget.text) ?? 0;
-              if (name.text.trim().isEmpty || parsedIncome < 0 || parsedBudget < 0) return;
-              try {
-                await context.read<UserProvider>().updateProfile(
-                  name: name.text,
-                  currency: currency,
-                  monthlyIncome: parsedIncome,
-                  monthlyBudget: parsedBudget,
-                );
-                if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-              } on FirebaseException catch (error) {
-                debugPrint('EditProfile FirebaseException: ${error.message}');
-                if (dialogContext.mounted) _message(error.message ?? 'Unable to save profile.');
-              } catch (error, stackTrace) {
-                debugPrint('EditProfile unexpected error: $error');
-                FlutterError.reportError(FlutterErrorDetails(
-                  exception: error,
-                  stack: stackTrace,
-                  context: ErrorDescription('In _editProfile'),
-                ));
-                if (dialogContext.mounted) _message('An unexpected error occurred: $error');
-              }
-            },
-            child: const Text('Save'),
+        const SizedBox(height: 16),
+        Text(
+          name,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.bold,
           ),
-        ],
-      ),
-    );
-    name.dispose();
-    income.dispose();
-    budget.dispose();
-    if (saved == true && mounted) _message('Profile updated.');
-  }
-
-  Future<void> _resetPassword() async {
-    final email = TextEditingController(
-      text: context.read<UserProvider>().user?.email ??
-          FirebaseAuth.instance.currentUser?.email ??
-          '',
-    );
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Reset Password'),
-        content: TextField(
-          controller: email,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(labelText: 'Email'),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Send link'),
-          ),
-        ],
-      ),
+        const SizedBox(height: 4),
+        Text(
+          email,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      ],
     );
-    if (confirmed != true || !mounted) {
-      email.dispose();
-      return;
-    }
-    final address = email.text.trim();
-    email.dispose();
-    if (!address.contains('@')) {
-      _message('Enter a valid email address.');
-      return;
-    }
-    try {
-      await context.read<AuthProvider>().resetPassword(address);
-      if (mounted) _message('Password reset link sent to $address.');
-    } on FirebaseAuthException catch (error) {
-      debugPrint('Profile resetPassword FirebaseAuthException [${error.code}]: ${error.message}');
-      if (mounted) _message(FirebaseService.getFriendlyErrorMessage(error));
-    } catch (error, stackTrace) {
-      debugPrint('Profile resetPassword unexpected error: $error');
-      FlutterError.reportError(FlutterErrorDetails(
-        exception: error,
-        stack: stackTrace,
-        context: ErrorDescription('In _resetPassword'),
-      ));
-      if (mounted) _message('Unable to send reset email: $error');
-    }
   }
 
-  Future<void> _logout() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Logout'),
+  Widget _buildSettingsSection(BuildContext context, ThemeProvider themeProvider, bool isDark, UserProvider userProvider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Settings',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: isDark ? Colors.white60 : const Color(0xFF8E8EA0),
+            fontWeight: FontWeight.w600,
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1A1A2E) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE8E8F0)),
+          ),
+          child: Column(
+            children: [
+              _SettingsTile(
+                icon: Icons.dark_mode_outlined,
+                title: 'Dark Mode',
+                trailing: Switch(
+                  value: themeProvider.themeMode == ThemeMode.dark,
+                  onChanged: (value) {
+                    themeProvider.setThemeMode(value ? ThemeMode.dark : ThemeMode.light);
+                  },
+                ),
+                isDark: isDark,
+              ),
+              _SettingsTile(
+                icon: Icons.notifications_outlined,
+                title: 'Notifications',
+                trailing: Switch(
+                  value: userProvider.notificationsEnabled,
+                  onChanged: (value) {
+                    userProvider.setNotificationsEnabled(value);
+                  },
+                ),
+                isDark: isDark,
+              ),
+              _SettingsTile(
+                icon: Icons.language_outlined,
+                title: 'Language',
+                trailing: Text(
+                  'English',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                isDark: isDark,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
-    if (confirm != true || !mounted) return;
-    try {
-      await context.read<AuthProvider>().logout();
-      if (!mounted) return;
-      context.read<UserProvider>().clear();
-      context.read<IncomeProvider>().clear();
-      context.read<ExpenseProvider>().clear();
-      context.read<BudgetProvider>().clear();
-      context.read<GoalProvider>().clear();
-      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.login, (route) => false);
-    } on FirebaseException catch (error) {
-      debugPrint('Logout FirebaseException: ${error.message}');
-      if (mounted) _message(error.message ?? 'Unable to logout. Please retry.');
-    } catch (error, stackTrace) {
-      debugPrint('Logout unexpected error: $error');
-      FlutterError.reportError(FlutterErrorDetails(
-        exception: error,
-        stack: stackTrace,
-        context: ErrorDescription('In _logout'),
-      ));
-      if (mounted) _message('An unexpected error occurred during logout: $error');
-    }
   }
 
-  Future<void> _pickImage() async {
-    try {
-      await context.read<UserProvider>().pickAndUploadProfileImage();
-      if (mounted && context.read<UserProvider>().error == null) {
-        _message('Profile image updated.');
-      }
-    } on FirebaseException catch (error) {
-      debugPrint('PickImage FirebaseException: ${error.message}');
-      if (mounted) _message(error.message ?? 'Unable to upload image.');
-    } catch (error, stackTrace) {
-      debugPrint('PickImage unexpected error: $error');
-      FlutterError.reportError(FlutterErrorDetails(
-        exception: error,
-        stack: stackTrace,
-        context: ErrorDescription('In _pickImage'),
-      ));
-      if (mounted) _message('Unable to upload image: $error');
-    }
+  Widget _buildAccountSection(BuildContext context, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Account',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: isDark ? Colors.white60 : const Color(0xFF8E8EA0),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1A1A2E) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE8E8F0)),
+          ),
+          child: Column(
+            children: [
+              _SettingsTile(
+                icon: Icons.security_outlined,
+                title: 'Privacy & Security',
+                onTap: () {},
+                isDark: isDark,
+              ),
+              _SettingsTile(
+                icon: Icons.help_outline,
+                title: 'Help & Support',
+                onTap: () {},
+                isDark: isDark,
+              ),
+              _SettingsTile(
+                icon: Icons.info_outline,
+                title: 'About',
+                onTap: () {},
+                isDark: isDark,
+              ),
+              _SettingsTile(
+                icon: Icons.logout,
+                title: 'Logout',
+                titleColor: const Color(0xFFFF4757),
+                iconColor: const Color(0xFFFF4757),
+                onTap: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Logout'),
+                      content: const Text('Are you sure you want to logout?'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF4757)),
+                          child: const Text('Logout'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed != true) return;
+                  if (!context.mounted) return;
+                  context.read<UserProvider>().clear();
+                  firebase_auth.FirebaseAuth.instance.signOut();
+                  if (context.mounted) {
+                    Navigator.pushReplacementNamed(context, '/login');
+                  }
+                },
+                isDark: isDark,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
+}
 
-  void _message(String text) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+class _SettingsTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final Color? titleColor;
+  final Color? iconColor;
+  final bool isDark;
+
+  const _SettingsTile({
+    required this.icon,
+    required this.title,
+    this.trailing,
+    this.onTap,
+    this.titleColor,
+    this.iconColor,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.watch<ThemeProvider>();
-    final profile = context.watch<UserProvider>();
-    final user = profile.user;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
-      body: profile.isLoading && user == null
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Stack(
-                          alignment: Alignment.bottomRight,
-                          children: [
-                            CircleAvatar(
-                              radius: 32,
-                              backgroundImage: user?.photoUrl?.isNotEmpty == true
-                                  ? NetworkImage(user!.photoUrl!)
-                                  : null,
-                              child: user?.photoUrl?.isNotEmpty == true
-                                  ? null
-                                  : const Icon(Icons.person, size: 32),
-                            ),
-                            IconButton(
-                              onPressed: profile.isLoading ? null : _pickImage,
-                              icon: const Icon(Icons.camera_alt),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          user?.name.isNotEmpty == true ? user!.name : 'Profile',
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(user?.email ?? ''),
-                        TextButton(onPressed: _editProfile, child: const Text('Edit Profile')),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ListTile(
-                  leading: const Icon(Icons.palette_outlined),
-                  title: const Text('Theme'),
-                  trailing: DropdownButton<ThemeMode>(
-                    value: theme.themeMode,
-                    underline: const SizedBox(),
-                    items: const [
-                      DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
-                      DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
-                      DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) context.read<ThemeProvider>().setThemeMode(value);
-                    },
-                  ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.currency_exchange),
-                  title: const Text('Currency'),
-                  subtitle: Text(user?.currency ?? '₹'),
-                  onTap: _editProfile,
-                ),
-                SwitchListTile(
-                  secondary: const Icon(Icons.notifications_outlined),
-                  title: const Text('Notifications'),
-                  value: profile.notificationsEnabled,
-                  onChanged: profile.setNotificationsEnabled,
-                ),
-                ListTile(
-                  leading: const Icon(Icons.lock_outline),
-                  title: const Text('Reset Password'),
-                  onTap: _resetPassword,
-                ),
-                ListTile(
-                  leading: const Icon(Icons.info_outline),
-                  title: const Text('About'),
-                  onTap: () => showAboutDialog(
-                    context: context,
-                    applicationName: 'SpendSense AI',
-                    applicationVersion: '1.0.0',
-                  ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.privacy_tip_outlined),
-                  title: const Text('Privacy Policy'),
-                  onTap: () => _message('Privacy Policy will be available here.'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.description_outlined),
-                  title: const Text('Terms & Conditions'),
-                  onTap: () => _message('Terms & Conditions will be available here.'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.logout),
-                  title: const Text('Logout'),
-                  onTap: _logout,
-                ),
-              ],
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: (iconColor ?? const Color(0xFF6C63FF)).withValues(alpha: isDark ? 0.2 : 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: iconColor ?? const Color(0xFF6C63FF), size: 20),
             ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: titleColor ?? (isDark ? Colors.white : const Color(0xFF1A1A2E)),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            if (trailing != null) trailing!,
+            if (onTap != null && trailing == null)
+              Icon(Icons.chevron_right, color: isDark ? Colors.white60 : const Color(0xFF8E8EA0)),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -33,6 +33,11 @@ dependencies:
 
   # Internationalisation
   intl: ^0.20.3
+  fl_chart: ^1.2.0
+  google_fonts: ^8.2.0
+  shimmer: ^3.0.0
+  flutter_slidable: ^4.0.3
+  lottie: ^3.5.1
 
 dev_dependencies:
   flutter_test:
