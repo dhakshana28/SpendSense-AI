@@ -17,6 +17,14 @@ class GoalsScreen extends StatefulWidget {
 
 class _GoalsScreenState extends State<GoalsScreen> {
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<GoalProvider>().subscribe();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final goalProvider = context.watch<GoalProvider>();
     final userProvider = context.watch<UserProvider>();
@@ -29,13 +37,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
           onRefresh: () async => goalProvider.subscribe(),
           child: ListView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
             children: [
               _buildHeader(context, goalProvider, currency, isDark),
               const SizedBox(height: 20),
               _buildOverallProgress(context, goalProvider, currency, isDark),
               const SizedBox(height: 20),
-              ...goalProvider.goals.map((goal) => _buildGoalCard(context, goal, currency, isDark)),
+              ...goalProvider.goals.map((goal) => _buildGoalCard(context, goal, currency, isDark, goalProvider)),
               if (goalProvider.goals.isEmpty)
                 Center(
                   child: Padding(
@@ -43,7 +51,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     child: Text('No goals yet. Start saving!', style: Theme.of(context).textTheme.bodyMedium),
                   ),
                 ),
-              const SizedBox(height: 80),
             ],
           ),
         ),
@@ -53,6 +60,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         icon: const Icon(Icons.add, size: 20),
         label: const Text('Add Goal'),
         backgroundColor: Theme.of(context).primaryColor,
+        elevation: 8,
       ),
     );
   }
@@ -146,7 +154,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
-  Widget _buildGoalCard(BuildContext context, GoalModel goal, String currency, bool isDark) {
+  Widget _buildGoalCard(BuildContext context, GoalModel goal, String currency, bool isDark, GoalProvider goalProvider) {
     final progress = goal.progress.clamp(0.0, 1.0);
     final remaining = goal.targetAmount - goal.savedAmount;
     final daysLeft = goal.targetDate.difference(DateTime.now()).inDays;
@@ -190,20 +198,58 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: (isCompleted ? Colors.white : (isDark ? const Color(0xFF6C63FF) : const Color(0xFF6C63FF))).withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  isCompleted ? 'Completed' : '${(progress * 100).toStringAsFixed(0)}%',
-                  style: TextStyle(
-                    color: isCompleted ? Colors.white : (isDark ? Colors.white : const Color(0xFF1A1A2E)),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: (isCompleted ? Colors.white : (isDark ? const Color(0xFF6C63FF) : const Color(0xFF6C63FF))).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      isCompleted ? 'Completed' : '${(progress * 100).toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        color: isCompleted ? Colors.white : (isDark ? Colors.white : const Color(0xFF1A1A2E)),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () => _showEditGoalDialog(context, goalProvider, goal, currency),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: (isCompleted ? Colors.white : const Color(0xFF6C63FF)).withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(Icons.edit, color: isCompleted ? Colors.white : (isDark ? Colors.white : const Color(0xFF6C63FF)), size: 18),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () async {
+                      final confirmed = await _showDeleteConfirmation(context);
+                      if (confirmed == true) {
+                        await goalProvider.deleteGoal(goal.id);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Goal deleted'), backgroundColor: Color(0xFFFF4757)),
+                          );
+                        }
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF4757).withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.delete, color: Color(0xFFFF4757), size: 18),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -305,7 +351,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      DateFormat('MMM d, yyyy').format(goal.targetDate),
+                      DateFormat('dd MMM yyyy').format(goal.targetDate),
                       style: TextStyle(
                         color: isCompleted ? Colors.white : (isDark ? Colors.white : const Color(0xFF1A1A2E)),
                         fontSize: 12,
@@ -353,77 +399,279 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   Future<void> _showAddGoalDialog(BuildContext context, GoalProvider goalProvider, String currency) async {
+    final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController();
     final targetController = TextEditingController();
     final savedController = TextEditingController();
     DateTime targetDate = DateTime.now().add(const Duration(days: 180));
 
-    await showDialog(
+    await showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text('Add Savings Goal', style: Theme.of(context).textTheme.titleLarge),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(labelText: 'Goal Title', hintText: 'e.g., New Laptop'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: targetController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(labelText: 'Target Amount ($currency)'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: savedController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(labelText: 'Initial Savings ($currency)'),
-                ),
-                const SizedBox(height: 12),
-                InkWell(
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: targetDate,
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
-                    );
-                    if (picked != null) {
-                      setState(() => targetDate = picked);
-                    }
-                  },
-                  child: InputDecorator(
-                    decoration: const InputDecoration(labelText: 'Target Date'),
-                    child: Text(DateFormat('MMM d, yyyy').format(targetDate)),
+        builder: (context, setState) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 20),
+                  Text('Add Savings Goal', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: titleController,
+                    decoration: const InputDecoration(labelText: 'Goal Title', hintText: 'e.g., New Laptop'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter a goal title';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: targetController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Target Amount ($currency)'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter target amount';
+                      if (double.tryParse(value.trim()) == null) return 'Please enter a valid number';
+                      if (double.parse(value.trim()) <= 0) return 'Amount must be greater than 0';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: savedController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Initial Savings ($currency)'),
+                  ),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: targetDate,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
+                      );
+                      if (picked != null) {
+                        setState(() => targetDate = picked);
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(labelText: 'Target Date', prefixIcon: Icon(Icons.calendar_today, size: 20)),
+                      child: Text(DateFormat('dd MMM yyyy').format(targetDate)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: goalProvider.isSaving ? null : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        final goal = GoalModel(
+                          id: '${DateTime.now().millisecondsSinceEpoch}_${FirebaseAuth.instance.currentUser?.uid ?? ''}',
+                          userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+                          title: titleController.text.trim(),
+                          targetAmount: double.parse(targetController.text.trim()),
+                          savedAmount: double.tryParse(savedController.text.trim()) ?? 0,
+                          targetDate: targetDate,
+                        );
+                        try {
+                          await goalProvider.addGoal(goal);
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Goal added successfully!'), backgroundColor: Color(0xFF00D9A6)),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Failed to add goal: ${e.toString()}'), backgroundColor: const Color(0xFFFF4757)),
+                            );
+                          }
+                        }
+                      },
+                      child: goalProvider.isSaving
+                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Add Goal'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                if (titleController.text.isEmpty || targetController.text.isEmpty) return;
-                final goal = GoalModel(
-                  id: DateTime.now().millisecondsSinceEpoch.toString(),
-                  userId: FirebaseAuth.instance.currentUser?.uid ?? '',
-                  title: titleController.text,
-                  targetAmount: double.parse(targetController.text),
-                  savedAmount: double.parse(savedController.text.isNotEmpty ? savedController.text : '0'),
-                  targetDate: targetDate,
-                );
-                await goalProvider.addGoal(goal);
-                if (context.mounted) Navigator.pop(context);
-              },
-              child: const Text('Add'),
-            ),
-          ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _showEditGoalDialog(BuildContext context, GoalProvider goalProvider, GoalModel goal, String currency) async {
+    final formKey = GlobalKey<FormState>();
+    final titleController = TextEditingController(text: goal.title);
+    final targetController = TextEditingController(text: goal.targetAmount.toString());
+    final savedController = TextEditingController(text: goal.savedAmount.toString());
+    DateTime selectedDate = goal.targetDate;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text('Edit Goal', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: titleController,
+                    decoration: const InputDecoration(labelText: 'Goal Title', hintText: 'e.g., New Laptop'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter a goal title';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: targetController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Target Amount ($currency)'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter target amount';
+                      if (double.tryParse(value.trim()) == null) return 'Please enter a valid number';
+                      if (double.parse(value.trim()) <= 0) return 'Amount must be greater than 0';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: savedController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Saved Amount ($currency)'),
+                  ),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
+                      );
+                      if (picked != null) {
+                        setState(() => selectedDate = picked);
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(labelText: 'Target Date', prefixIcon: Icon(Icons.calendar_today, size: 20)),
+                      child: Text(DateFormat('dd MMM yyyy').format(selectedDate)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: goalProvider.isSaving ? null : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        final updated = goal.copyWith(
+                          title: titleController.text.trim(),
+                          targetAmount: double.parse(targetController.text.trim()),
+                          savedAmount: double.tryParse(savedController.text.trim()) ?? goal.savedAmount,
+                          targetDate: selectedDate,
+                        );
+                        try {
+                          await goalProvider.updateGoal(updated);
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Goal updated successfully!'), backgroundColor: Color(0xFF4DABF7)),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Failed to update goal: ${e.toString()}'), backgroundColor: const Color(0xFFFF4757)),
+                            );
+                          }
+                        }
+                      },
+                      child: goalProvider.isSaving
+                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Update Goal'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<bool?> _showDeleteConfirmation(BuildContext context) async {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Goal'),
+        content: const Text('Are you sure you want to delete this savings goal?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF4757)),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }

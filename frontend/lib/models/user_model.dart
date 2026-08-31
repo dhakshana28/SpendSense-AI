@@ -12,7 +12,12 @@ class UserModel {
     this.monthlyBudget = 0,
     this.savingsGoal = 0,
     this.financialHealthScore = 0,
+    this.age,
+    this.occupation,
+    this.persona,
+    this.financialGoals = const [],
     this.createdAt,
+    this.updatedAt,
   });
 
   final String uid;
@@ -24,7 +29,12 @@ class UserModel {
   final double monthlyBudget;
   final double savingsGoal;
   final int financialHealthScore;
+  final int? age;
+  final String? occupation;
+  final String? persona;
+  final List<String> financialGoals;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   factory UserModel.createDefault(User user) => UserModel(
         uid: user.uid,
@@ -43,7 +53,14 @@ class UserModel {
         monthlyBudget: (map['monthlyBudget'] as num? ?? 0).toDouble(),
         savingsGoal: (map['savingsGoal'] as num? ?? 0).toDouble(),
         financialHealthScore: map['financialHealthScore'] as int? ?? 0,
+        age: (map['age'] as num?)?.toInt(),
+        occupation: map['occupation'] as String?,
+        persona: map['persona'] as String?,
+        financialGoals: (map['financialGoals'] as List<dynamic>? ?? const [])
+            .whereType<String>()
+            .toList(),
         createdAt: (map['createdAt'] as Timestamp?)?.toDate(),
+        updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
       );
 
   Map<String, dynamic> toMap() => {
@@ -56,9 +73,16 @@ class UserModel {
         'monthlyBudget': monthlyBudget,
         'savingsGoal': savingsGoal,
         'financialHealthScore': financialHealthScore,
+        'age': age,
+        'occupation': occupation,
+        'persona': persona,
+        'financialGoals': financialGoals,
         'createdAt': createdAt == null
             ? FieldValue.serverTimestamp()
             : Timestamp.fromDate(createdAt!),
+        'updatedAt': updatedAt == null
+            ? FieldValue.serverTimestamp()
+            : Timestamp.fromDate(updatedAt!),
       };
 
   UserModel copyWith({
@@ -68,6 +92,10 @@ class UserModel {
     String? currency,
     double? monthlyIncome,
     double? monthlyBudget,
+    int? age,
+    String? occupation,
+    String? persona,
+    List<String>? financialGoals,
   }) =>
       UserModel(
         uid: uid,
@@ -79,6 +107,12 @@ class UserModel {
         monthlyBudget: monthlyBudget ?? this.monthlyBudget,
         savingsGoal: savingsGoal,
         financialHealthScore: financialHealthScore,
+        age: age ?? this.age,
+        occupation: occupation ?? this.occupation,
+        persona: persona ?? this.persona,
+        financialGoals: financialGoals ?? this.financialGoals,
         createdAt: createdAt,
+        updatedAt: DateTime.now(),
       );
 }
+

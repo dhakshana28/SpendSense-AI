@@ -1,0 +1,15 @@
+Analyzing savings_provider.dart...                              
+
+  error - The name 'totalIncome' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:143:14 - duplicate_definition
+  error - The name 'totalExpenses' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:146:14 - duplicate_definition
+  error - The name 'monthlySavings' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:149:14 - duplicate_definition
+  error - The name 'monthlyIncome' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:160:14 - duplicate_definition
+  error - The name 'monthlyExpense' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:167:14 - duplicate_definition
+  error - The name 'yearlySavings' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:174:14 - duplicate_definition
+  error - The name 'savingsPercentage' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:185:14 - duplicate_definition
+  error - The name 'savingsGrowth' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:191:14 - duplicate_definition
+  error - The name 'monthlySavingsTrend' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:198:27 - duplicate_definition
+  error - The name 'walletWiseSavings' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:217:27 - duplicate_definition
+  error - The name 'savingsGoalProgress' is already defined. Try renaming one of the declarations - lib\providers\savings_provider.dart:219:14 - duplicate_definition
+
+11 issues found. (ran in 2.7s)

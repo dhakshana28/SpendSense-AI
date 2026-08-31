@@ -1,0 +1,84 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsNewDocument() {
+      return signedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    function ownsExistingDocument() {
+      return signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    function keepsOwnership() {
+      return request.resource.data.userId == request.auth.uid;
+    }
+
+    // A user can access only their own profile, whose document id is their UID.
+    match /users/{userId} {
+      allow create: if signedIn()
+          && userId == request.auth.uid
+          && request.resource.data.uid == request.auth.uid;
+      allow read, delete: if signedIn() && userId == request.auth.uid;
+      allow update: if signedIn()
+          && userId == request.auth.uid
+          && request.resource.data.uid == request.auth.uid;
+    }
+
+    // Financial records are stored in top-level collections and carry userId.
+    match /income/{recordId} {
+      allow create: if ownsNewDocument();
+      allow read, delete: if ownsExistingDocument();
+      allow update: if ownsExistingDocument() && keepsOwnership();
+    }
+
+    match /expenses/{recordId} {
+      allow create: if ownsNewDocument();
+      allow read, delete: if ownsExistingDocument();
+      allow update: if ownsExistingDocument() && keepsOwnership();
+    }
+
+    match /budgets/{recordId} {
+      allow create: if ownsNewDocument();
+      allow read, delete: if ownsExistingDocument();
+      allow update: if ownsExistingDocument() && keepsOwnership();
+    }
+
+    match /goals/{recordId} {
+      allow create: if ownsNewDocument();
+      allow read, delete: if ownsExistingDocument();
+      allow update: if ownsExistingDocument() && keepsOwnership();
+    }
+
+    match /reports/{reportId} {
+      allow create: if ownsNewDocument();
+      allow read, delete: if ownsExistingDocument();
+      allow update: if ownsExistingDocument() && keepsOwnership();
+    }
+
+    match /wallets/{walletId} {
+      allow create: if ownsNewDocument();
+      allow read, delete: if ownsExistingDocument();
+      allow update: if ownsExistingDocument() && keepsOwnership();
+    }
+
+    match /wallet_transactions/{transactionId} {
+      allow create: if ownsNewDocument();
+      allow read, delete: if ownsExistingDocument();
+    }
+
+    match /savings_summary/{userId} {
+      allow read, write: if signedIn() && userId == request.auth.uid;
+    }
+
+    match /ai_chat_history/{messageId} {
+      allow create: if ownsNewDocument();
+      allow read, delete: if ownsExistingDocument();
+      allow update: if ownsExistingDocument() && keepsOwnership();
+    }
+  }
+}

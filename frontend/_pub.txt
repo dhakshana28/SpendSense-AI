@@ -1,0 +1,8 @@
+Resolving dependencies...
+Because frontend depends on syncfusion_flutter_pdf ^34.1.32 which depends on xml ^7.0.1, xml ^7.0.1 is required.
+So, because frontend depends on xml ^6.5.0, version solving failed.
+
+
+You can try the following suggestion to make the pubspec resolve:
+* Try upgrading your constraint on xml: flutter pub add xml:^7.0.1
+Failed to update packages.

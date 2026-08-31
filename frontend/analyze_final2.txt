@@ -1,0 +1,5 @@
+Analyzing frontend...                                           
+
+  error - The argument type 'num' can't be assigned to the parameter type 'double?'.  - lib\screens\reports\reports_screen.dart:361:23 - argument_type_not_assignable
+
+1 issue found. (ran in 37.6s)

@@ -78,12 +78,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: IconButton(
                 onPressed: () async {
-                  await context.read<UserProvider>().pickAndUploadProfileImage();
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Profile picture updated!'), backgroundColor: Color(0xFF00D9A6)),
-                    );
-                  }
+                  final userProvider = context.read<UserProvider>();
+                  final messenger = ScaffoldMessenger.of(context);
+                  await userProvider.pickAndUploadProfileImage();
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('Profile picture updated!'), backgroundColor: Color(0xFF00D9A6)),
+                  );
                 },
                 icon: const Icon(Icons.camera_alt, size: 18, color: Colors.white),
               ),
@@ -224,12 +225,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   );
                   if (confirmed != true) return;
-                  if (!context.mounted) return;
-                  context.read<UserProvider>().clear();
-                  firebase_auth.FirebaseAuth.instance.signOut();
-                  if (context.mounted) {
-                    Navigator.pushReplacementNamed(context, '/login');
-                  }
+                if (!context.mounted) return;
+                context.read<UserProvider>().clear();
+                await firebase_auth.FirebaseAuth.instance.signOut();
+                if (!context.mounted) return;
+                Navigator.pushReplacementNamed(context, '/login');
                 },
                 isDark: isDark,
               ),
@@ -287,9 +287,7 @@ class _SettingsTile extends StatelessWidget {
                 ),
               ),
             ),
-            if (trailing != null) trailing!,
-            if (onTap != null && trailing == null)
-              Icon(Icons.chevron_right, color: isDark ? Colors.white60 : const Color(0xFF8E8EA0)),
+            trailing ?? (onTap != null ? Icon(Icons.chevron_right, color: isDark ? Colors.white60 : const Color(0xFF8E8EA0)) : const SizedBox()),
           ],
         ),
       ),

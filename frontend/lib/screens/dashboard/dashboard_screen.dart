@@ -24,13 +24,15 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _subscribeToData();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
+    // Schedule the initial data load AFTER the first frame so that provider
+    // notifications (e.g. notifyListeners inside loadCurrentUser / subscribe)
+    // never run during the widget build phase. Otherwise Flutter throws
+    // "setState() or markNeedsBuild() called during build".
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _subscribeToData();
+      }
+    });
   }
 
   @override
@@ -316,8 +318,11 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           ),
           const SizedBox(height: 16),
           SizedBox(
-            height: 120,
-            child: _buildBarChart(context, expenseProvider, isDark),
+            height: 200,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: _buildBarChart(context, expenseProvider, isDark),
+            ),
           ),
         ],
       ),
@@ -355,21 +360,34 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     final days = List.generate(7, (i) => now.subtract(Duration(days: 6 - i)));
     final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+    double maxDailyExpense = 10.0;
+    for (var day in days) {
+      final dayExpenses = expenseProvider.expenses.where((e) =>
+          e.date.year == day.year &&
+          e.date.month == day.month &&
+          e.date.day == day.day);
+      final total = dayExpenses.fold(0.0, (sum, e) => sum + e.amount);
+      if (total > maxDailyExpense) {
+        maxDailyExpense = total;
+      }
+    }
+
     return BarChart(
       BarChartData(
         alignment: BarChartAlignment.spaceAround,
-        maxY: expenseProvider.monthlyExpense > 0 ? expenseProvider.monthlyExpense / 4 : 1000,
+        maxY: maxDailyExpense * 1.2,
         barTouchData: BarTouchData(enabled: false),
         titlesData: FlTitlesData(
           show: true,
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
+              reservedSize: 30,
               getTitlesWidget: (value, meta) {
                 final index = value.toInt();
                 if (index >= 0 && index < dayNames.length) {
                   return Padding(
-                    padding: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.only(top: 8),
                     child: Text(dayNames[index], style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : const Color(0xFF8E8EA0))),
                   );
                 }
@@ -377,11 +395,11 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               },
             ),
           ),
-          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
-        gridData: FlGridData(show: false),
+        gridData: const FlGridData(show: false),
         borderData: FlBorderData(show: false),
         barGroups: days.asMap().entries.map((entry) {
           final dayExpenses = expenseProvider.expenses.where((e) =>

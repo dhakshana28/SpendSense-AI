@@ -1,0 +1,14 @@
+Analyzing ai_insights_screen.dart...
+
+  error - ai_insights_screen.dart:383:169 - Undefined name 'budgets'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - ai_insights_screen.dart:383:178 - Undefined name 'goals'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+warning - ai_insights_screen.dart:233:51 - Dead code. Try removing the code, or fixing the code before it so that it can be reached. - dead_code
+warning - ai_insights_screen.dart:233:54 - The left operand can't be null, so the right operand is never executed. Try removing the operator and the right operand. - dead_null_aware_expression
+warning - ai_insights_screen.dart:235:52 - Dead code. Try removing the code, or fixing the code before it so that it can be reached. - dead_code
+warning - ai_insights_screen.dart:235:55 - The left operand can't be null, so the right operand is never executed. Try removing the operator and the right operand. - dead_null_aware_expression
+warning - ai_insights_screen.dart:237:57 - Dead code. Try removing the code, or fixing the code before it so that it can be reached. - dead_code
+warning - ai_insights_screen.dart:237:60 - The left operand can't be null, so the right operand is never executed. Try removing the operator and the right operand. - dead_null_aware_expression
+warning - ai_insights_screen.dart:239:55 - Dead code. Try removing the code, or fixing the code before it so that it can be reached. - dead_code
+warning - ai_insights_screen.dart:239:58 - The left operand can't be null, so the right operand is never executed. Try removing the operator and the right operand. - dead_null_aware_expression
+
+10 issues found.

@@ -16,7 +16,7 @@ class AppConstants {
   // Gemini AI
   // ===============================
 
-  static const String geminiModel = "gemini-2.5-flash";
+  static const String geminiModel = "gemini-3.5-flash-lite";
 
   // Replace with your API key later
   static const String geminiApiKey = "";
@@ -32,6 +32,9 @@ class AppConstants {
   static const String goalsCollection = "goals";
   static const String reportsCollection = "reports";
   static const String notificationsCollection = "notifications";
+  static const String walletsCollection = "wallets";
+  static const String walletTransactionsCollection = "wallet_transactions";
+  static const String savingsSummaryCollection = "savings_summary";
 
   // ===============================
   // Shared Preferences Keys

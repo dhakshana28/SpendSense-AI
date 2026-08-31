@@ -10,11 +10,13 @@ class BudgetProvider extends ChangeNotifier {
   final FirebaseService _firebaseService = FirebaseService();
   List<BudgetModel> _budgets = [];
   final bool _isLoading = false;
+  bool _isSaving = false;
   String? _error;
   StreamSubscription? _subscription;
 
   List<BudgetModel> get budgets => _budgets;
   bool get isLoading => _isLoading;
+  bool get isSaving => _isSaving;
   String? get error => _error;
 
   double get totalBudget =>
@@ -29,21 +31,22 @@ class BudgetProvider extends ChangeNotifier {
   void subscribe() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    _subscription = _firebaseService.budgetsRef
-        .where('userId', isEqualTo: user.uid)
-        .orderBy('startDate', descending: true)
-        .snapshots()
-        .listen((snapshot) {
-      _budgets = snapshot.docs
-          .map((doc) => BudgetModel.fromMap(doc.data(), doc.id))
-          .toList();
-      _error = null;
-      notifyListeners();
-    }, onError: (error) {
-      debugPrint('BudgetProvider subscription error: $error');
-      _error = error.toString();
-      notifyListeners();
-    });
+    _subscription?.cancel();
+      _subscription = _firebaseService.budgetsRef
+          .where('userId', isEqualTo: user.uid)
+          .snapshots()
+          .listen((snapshot) {
+        _budgets = snapshot.docs
+            .map((doc) => BudgetModel.fromMap(doc.data(), doc.id))
+            .toList();
+        _budgets.sort((a, b) => b.startDate.compareTo(a.startDate));
+        _error = null;
+        notifyListeners();
+      }, onError: (error) {
+        debugPrint('BudgetProvider subscription error: $error');
+        _error = FirebaseService.getFriendlyError(error);
+        notifyListeners();
+      });
   }
 
   BudgetModel? getBudget(String category) {
@@ -54,20 +57,40 @@ class BudgetProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> addBudget(BudgetModel budget) async {
+  Future<bool> addBudget(BudgetModel budget) async {
+    if (_isSaving) return false;
+    _isSaving = true;
+    _error = null;
+    notifyListeners();
     try {
       await _firebaseService.addBudget(budget);
+      _isSaving = false;
+      notifyListeners();
+      return true;
     } catch (e) {
+      _isSaving = false;
+      _error = e.toString();
       debugPrint('BudgetProvider.addBudget error: $e');
+      notifyListeners();
       rethrow;
     }
   }
 
-  Future<void> updateBudget(BudgetModel budget) async {
+  Future<bool> updateBudget(BudgetModel budget) async {
+    if (_isSaving) return false;
+    _isSaving = true;
+    _error = null;
+    notifyListeners();
     try {
       await _firebaseService.updateBudget(budget);
+      _isSaving = false;
+      notifyListeners();
+      return true;
     } catch (e) {
+      _isSaving = false;
+      _error = e.toString();
       debugPrint('BudgetProvider.updateBudget error: $e');
+      notifyListeners();
       rethrow;
     }
   }

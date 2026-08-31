@@ -127,7 +127,7 @@ class PremiumCard extends StatelessWidget {
                 ),
                 child: Icon(icon, color: color, size: 20),
               ),
-              if (trailing != null) trailing!,
+              trailing ?? const SizedBox(),
             ],
           ),
           const SizedBox(height: 12),

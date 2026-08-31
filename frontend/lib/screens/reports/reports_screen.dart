@@ -320,6 +320,34 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _buildMonthlyTrend(BuildContext context, ExpenseProvider expenseProvider, IncomeProvider incomeProvider, String currency, bool isDark) {
+    // Build live monthly trend data for the last 6 months.
+    const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final now = DateTime.now();
+    final labels = <String>[];
+    final incomeSpots = <FlSpot>[];
+    final expenseSpots = <FlSpot>[];
+    double maxValue = 0;
+
+    for (int i = 5; i >= 0; i--) {
+      final monthDate = DateTime(now.year, now.month - i, 1);
+      labels.add(monthLabels[monthDate.month - 1]);
+
+      final monthIncome = incomeProvider.incomeList
+          .where((x) => x.date.year == monthDate.year && x.date.month == monthDate.month)
+          .fold(0.0, (sum, x) => sum + x.amount);
+      final monthExpense = expenseProvider.expenseList
+          .where((x) => x.date.year == monthDate.year && x.date.month == monthDate.month)
+          .fold(0.0, (sum, x) => sum + x.amount);
+
+      if (monthIncome > maxValue) maxValue = monthIncome;
+      if (monthExpense > maxValue) maxValue = monthExpense;
+
+      incomeSpots.add(FlSpot(i.toDouble(), monthIncome));
+      expenseSpots.add(FlSpot(i.toDouble(), monthExpense));
+    }
+
+    final double chartMaxY = maxValue > 0 ? maxValue * 1.2 : 1000.0;
+
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -330,6 +358,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             height: 200,
             child: LineChart(
               LineChartData(
+                maxY: chartMaxY,
                 lineTouchData: LineTouchData(enabled: false),
                 titlesData: FlTitlesData(
                   show: true,
@@ -337,11 +366,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     sideTitles: SideTitles(
                       showTitles: true,
                       getTitlesWidget: (value, meta) {
-                        final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-                        if (value.toInt() >= 0 && value.toInt() < months.length) {
+                        if (value.toInt() >= 0 && value.toInt() < labels.length) {
                           return Padding(
                             padding: const EdgeInsets.only(top: 4),
-                            child: Text(months[value.toInt()], style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : const Color(0xFF8E8EA0))),
+                            child: Text(labels[value.toInt()], style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : const Color(0xFF8E8EA0))),
                           );
                         }
                         return const SizedBox();
@@ -356,19 +384,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 borderData: FlBorderData(show: false),
                 lineBarsData: [
                   LineChartBarData(
-                    spots: List.generate(6, (i) => FlSpot(i.toDouble(), 5000 + i * 2000)),
+                    spots: incomeSpots,
                     isCurved: true,
                     color: const Color(0xFF00D9A6),
                     barWidth: 3,
-                    dotData: FlDotData(show: false),
+                    dotData: FlDotData(show: true),
                     belowBarData: BarAreaData(show: true, color: const Color(0xFF00D9A6).withValues(alpha: 0.1)),
                   ),
                   LineChartBarData(
-                    spots: List.generate(6, (i) => FlSpot(i.toDouble(), 3000 + i * 1500)),
+                    spots: expenseSpots,
                     isCurved: true,
                     color: const Color(0xFFFF6584),
                     barWidth: 3,
-                    dotData: FlDotData(show: false),
+                    dotData: FlDotData(show: true),
                     belowBarData: BarAreaData(show: true, color: const Color(0xFFFF6584).withValues(alpha: 0.1)),
                   ),
                 ],

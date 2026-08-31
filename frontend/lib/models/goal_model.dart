@@ -39,4 +39,22 @@ class GoalModel {
         'savedAmount': savedAmount,
         'targetDate': Timestamp.fromDate(targetDate),
       };
+
+  GoalModel copyWith({
+    String? id,
+    String? userId,
+    String? title,
+    double? targetAmount,
+    double? savedAmount,
+    DateTime? targetDate,
+  }) {
+    return GoalModel(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      title: title ?? this.title,
+      targetAmount: targetAmount ?? this.targetAmount,
+      savedAmount: savedAmount ?? this.savedAmount,
+      targetDate: targetDate ?? this.targetDate,
+    );
+  }
 }

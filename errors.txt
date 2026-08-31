@@ -1,0 +1,33 @@
+Analyzing ai_insights_screen.dart...
+
+  error - ai_insights_screen.dart:182:70 - Undefined name 'budgets'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - ai_insights_screen.dart:182:79 - Undefined name 'goals'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - ai_insights_screen.dart:226:10 - The name 'IncomeModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'IncomeModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:227:10 - The name 'ExpenseModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'ExpenseModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:228:10 - The name 'BudgetModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'BudgetModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:229:10 - The name 'GoalModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'GoalModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:232:43 - The property 'amount' can't be unconditionally accessed because the receiver can be 'null'. Try making the access conditional (using '?.') or adding a null check to the target ('!'). - unchecked_use_of_nullable_value
+  error - ai_insights_screen.dart:234:44 - The property 'amount' can't be unconditionally accessed because the receiver can be 'null'. Try making the access conditional (using '?.') or adding a null check to the target ('!'). - unchecked_use_of_nullable_value
+  error - ai_insights_screen.dart:236:43 - The property 'budgetAmount' can't be unconditionally accessed because the receiver can be 'null'. Try making the access conditional (using '?.') or adding a null check to the target ('!'). - unchecked_use_of_nullable_value
+  error - ai_insights_screen.dart:238:41 - The property 'targetAmount' can't be unconditionally accessed because the receiver can be 'null'. Try making the access conditional (using '?.') or adding a null check to the target ('!'). - unchecked_use_of_nullable_value
+  error - ai_insights_screen.dart:245:19 - The name 'IncomeModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'IncomeModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:246:19 - The name 'ExpenseModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'ExpenseModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:247:19 - The name 'BudgetModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'BudgetModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:248:19 - The name 'GoalModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'GoalModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:276:19 - The name 'IncomeModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'IncomeModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:277:19 - The name 'ExpenseModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'ExpenseModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:278:19 - The name 'BudgetModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'BudgetModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:279:19 - The name 'GoalModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'GoalModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:306:10 - The name 'BudgetModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'BudgetModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:307:10 - The name 'GoalModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'GoalModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:309:52 - The argument type 'IncomeProvider' can't be assigned to the parameter type 'ExpenseProvider'.  - argument_type_not_assignable
+  error - ai_insights_screen.dart:309:68 - Too many positional arguments: 2 expected, but 3 found. Try removing the extra arguments. - extra_positional_arguments
+  error - ai_insights_screen.dart:310:54 - The argument type 'IncomeProvider' can't be assigned to the parameter type 'ExpenseProvider'.  - argument_type_not_assignable
+  error - ai_insights_screen.dart:310:70 - Too many positional arguments: 2 expected, but 3 found. Try removing the extra arguments. - extra_positional_arguments
+  error - ai_insights_screen.dart:389:167 - 5 positional arguments expected by '_buildFinancialTips', but 3 found. Try adding the missing arguments. - not_enough_positional_arguments
+  error - ai_insights_screen.dart:710:10 - The name 'BudgetModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'BudgetModel'. - non_type_as_type_argument
+  error - ai_insights_screen.dart:711:10 - The name 'GoalModel' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'GoalModel'. - non_type_as_type_argument
+warning - ai_insights_screen.dart:35:11 - The value of the field '_errorMessage' isn't used. Try removing the field, or using it. - unused_field
+warning - ai_insights_screen.dart:295:16 - The declaration '_refresh' isn't referenced. Try removing the declaration of '_refresh'. - unused_element
+
+29 issues found.

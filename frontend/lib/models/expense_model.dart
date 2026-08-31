@@ -7,9 +7,10 @@ class ExpenseModel {
   final String category;
   final String paymentMethod;
   final String description;
-  final String? receiptImage;
   final DateTime date;
   final DateTime createdAt;
+  final String? walletId;
+  final String? walletName;
 
   const ExpenseModel({
     required this.id,
@@ -18,15 +19,13 @@ class ExpenseModel {
     required this.category,
     required this.paymentMethod,
     required this.description,
-    this.receiptImage,
     required this.date,
     required this.createdAt,
+    this.walletId,
+    this.walletName,
   });
 
-  factory ExpenseModel.fromMap(
-    Map<String, dynamic> map,
-    String documentId,
-  ) {
+  factory ExpenseModel.fromMap(Map<String, dynamic> map, String documentId) {
     return ExpenseModel(
       id: documentId,
       userId: map['userId'] ?? '',
@@ -34,23 +33,28 @@ class ExpenseModel {
       category: map['category'] ?? '',
       paymentMethod: map['paymentMethod'] ?? '',
       description: map['description'] ?? '',
-      receiptImage: map['receiptImage'],
       date: (map['date'] as Timestamp).toDate(),
       createdAt: (map['createdAt'] as Timestamp).toDate(),
+      walletId: map['walletId'],
+      walletName: map['walletName'],
     );
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = <String, dynamic>{
       'userId': userId,
       'amount': amount,
       'category': category,
       'paymentMethod': paymentMethod,
       'description': description,
-      'receiptImage': receiptImage,
       'date': Timestamp.fromDate(date),
       'createdAt': Timestamp.fromDate(createdAt),
     };
+    if (walletId != null) {
+      map['walletId'] = walletId;
+      map['walletName'] = walletName;
+    }
+    return map;
   }
 
   ExpenseModel copyWith({
@@ -60,9 +64,10 @@ class ExpenseModel {
     String? category,
     String? paymentMethod,
     String? description,
-    String? receiptImage,
     DateTime? date,
     DateTime? createdAt,
+    String? walletId,
+    String? walletName,
   }) {
     return ExpenseModel(
       id: id ?? this.id,
@@ -71,9 +76,10 @@ class ExpenseModel {
       category: category ?? this.category,
       paymentMethod: paymentMethod ?? this.paymentMethod,
       description: description ?? this.description,
-      receiptImage: receiptImage ?? this.receiptImage,
       date: date ?? this.date,
       createdAt: createdAt ?? this.createdAt,
+      walletId: walletId ?? this.walletId,
+      walletName: walletName ?? this.walletName,
     );
   }
 }

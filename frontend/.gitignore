@@ -4,6 +4,11 @@
 *.pyc
 *.swp
 .DS_Store
+
+# Environment / secrets (never commit API keys or credentials)
+.env
+.env.*
+!.env.example
 .atom/
 .build/
 .buildlog/

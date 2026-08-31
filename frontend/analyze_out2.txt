@@ -1,0 +1,11 @@
+Analyzing frontend...                                           
+
+warning - Unused import: '../services/notification_service.dart'. Try removing the import directive - lib\screens\bank_statement_import_screen.dart:17:8 - unused_import
+warning - The declaration '_getFileBytes' isn't referenced. Try removing the declaration of '_getFileBytes' - lib\screens\bank_statement_import_screen.dart:474:22 - unused_element
+warning - The value of the field '_fallbackModels' isn't used. Try removing the field, or using it - lib\services\ai\gemini_service.dart:75:29 - unused_field
+   info - Unnecessary braces in a string interpolation. Try removing the braces - lib\services\bank_statement_parser.dart:23:51 - unnecessary_brace_in_string_interps
+warning - The declaration '_parseCsv' isn't referenced. Try removing the declaration of '_parseCsv' - lib\services\bank_statement_parser.dart:50:40 - unused_element
+warning - The declaration '_parseExcel' isn't referenced. Try removing the declaration of '_parseExcel' - lib\services\bank_statement_parser.dart:129:40 - unused_element
+warning - The declaration '_parsePdf' isn't referenced. Try removing the declaration of '_parsePdf' - lib\services\bank_statement_parser.dart:233:40 - unused_element
+
+7 issues found. (ran in 56.5s)

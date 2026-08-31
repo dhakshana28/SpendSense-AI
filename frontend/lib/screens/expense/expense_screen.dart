@@ -8,6 +8,7 @@ import '../../app/theme/app_theme.dart';
 import '../../models/expense_model.dart';
 import '../../providers/expense_provider.dart';
 import '../../providers/user_provider.dart';
+import '../../services/firebase/firebase_service.dart';
 
 class ExpenseScreen extends StatefulWidget {
   const ExpenseScreen({super.key});
@@ -18,6 +19,14 @@ class ExpenseScreen extends StatefulWidget {
 
 class _ExpenseScreenState extends State<ExpenseScreen> {
   final List<ExpenseModel> _selectedForDeletion = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<ExpenseProvider>().subscribe();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +41,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
           onRefresh: () async => expenseProvider.subscribe(),
           child: ListView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
             children: [
               _buildHeader(context, expenseProvider, currency, isDark),
               const SizedBox(height: 20),
@@ -54,7 +63,6 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                     child: Text('No expenses yet. Start tracking!', style: Theme.of(context).textTheme.bodyMedium),
                   ),
                 ),
-              const SizedBox(height: 80),
             ],
           ),
         ),
@@ -64,6 +72,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
         icon: const Icon(Icons.add, size: 20),
         label: const Text('Add Expense'),
         backgroundColor: Theme.of(context).primaryColor,
+        elevation: 8,
       ),
     );
   }
@@ -184,6 +193,11 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                 await expenseProvider.deleteExpense(expense.id);
               }
               setState(() => _selectedForDeletion.clear());
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Expenses deleted'), backgroundColor: Color(0xFF00D9A6)),
+                );
+              }
             },
             icon: const Icon(Icons.delete, size: 16),
             label: const Text('Delete'),
@@ -230,6 +244,11 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
               final confirmed = await _showDeleteConfirmation(context);
               if (confirmed == true) {
                 await expenseProvider.deleteExpense(expense.id);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Expense deleted'), backgroundColor: Color(0xFFFF4757)),
+                  );
+                }
               }
             },
             backgroundColor: const Color(0xFFFF4757),
@@ -257,7 +276,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
             decoration: BoxDecoration(
               color: isSelected ? const Color(0xFFFF4757).withValues(alpha: 0.1) : (isDark ? const Color(0xFF1A1A2E) : Colors.white),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: isSelected ? const Color(0xFFFF4757).withValues(alpha: 0.3) : (isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFFF4757).withValues(alpha: 0.3))),
+              border: Border.all(color: isSelected ? const Color(0xFFFF4757).withValues(alpha: 0.3) : (isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE8E8F0))),
             ),
             child: Row(
               children: [
@@ -301,9 +320,14 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                         fontSize: 15,
                       ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
-                      DateFormat('MMM d, h:mm a').format(expense.date),
-                      style: Theme.of(context).textTheme.bodySmall,
+                      DateFormat('dd MMM yyyy').format(expense.date),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
+                    ),
+                    Text(
+                      DateFormat('h:mm a').format(expense.date),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10),
                     ),
                   ],
                 ),
@@ -316,138 +340,357 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   }
 
   Future<void> _showAddExpenseDialog(BuildContext context, ExpenseProvider expenseProvider, String currency) async {
+    final formKey = GlobalKey<FormState>();
     final amountController = TextEditingController();
     final descriptionController = TextEditingController();
-    String selectedCategory = 'Food';
-    String selectedMethod = 'Cash';
+    final categoryController = TextEditingController(text: 'Food');
+    final methodController = TextEditingController(text: 'Cash');
+    DateTime selectedDate = DateTime.now();
+    TimeOfDay selectedTime = TimeOfDay.now();
 
-    final categories = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Education', 'Other'];
-    final methods = ['Cash', 'Card', 'UPI', 'Bank Transfer'];
-
-    await showDialog(
+    await showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text('Add Expense', style: Theme.of(context).textTheme.titleLarge),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: amountController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Amount', hintText: 'Enter amount'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descriptionController,
-                  decoration: const InputDecoration(labelText: 'Description', hintText: 'What was this for?'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedCategory,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                  onChanged: (v) => setState(() => selectedCategory = v!),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedMethod,
-                  decoration: const InputDecoration(labelText: 'Payment Method'),
-                  items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
-                  onChanged: (v) => setState(() => selectedMethod = v!),
-                ),
-              ],
+        builder: (context, setState) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text('Add Expense', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: amountController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Amount', hintText: 'Enter amount', prefixText: '₹ '),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter an amount';
+                      if (double.tryParse(value.trim()) == null) return 'Please enter a valid number';
+                      if (double.parse(value.trim()) <= 0) return 'Amount must be greater than 0';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: categoryController,
+                    decoration: const InputDecoration(
+                      labelText: 'Category',
+                      hintText: 'e.g. Food, Travel, Rent, Shopping',
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter a category';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: methodController,
+                    decoration: const InputDecoration(labelText: 'Payment Method', hintText: 'e.g. Cash, Card, UPI'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter a payment method';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: descriptionController,
+                    decoration: const InputDecoration(labelText: 'Description (optional)', hintText: 'What was this for?'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: selectedDate,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime.now().add(const Duration(days: 365)),
+                            );
+                            if (picked != null) {
+                              setState(() => selectedDate = DateTime(
+                                picked.year, picked.month, picked.day,
+                                selectedTime.hour, selectedTime.minute,
+                              ));
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Date', prefixIcon: Icon(Icons.calendar_today, size: 20)),
+                            child: Text(DateFormat('dd MMM yyyy').format(selectedDate)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showTimePicker(
+                              context: context,
+                              initialTime: selectedTime,
+                            );
+                            if (picked != null) {
+                              setState(() {
+                                selectedTime = picked;
+                                selectedDate = DateTime(
+                                  selectedDate.year, selectedDate.month, selectedDate.day,
+                                  picked.hour, picked.minute,
+                                );
+                              });
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Time', prefixIcon: Icon(Icons.access_time, size: 20)),
+                            child: Text(selectedTime.format(context)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: expenseProvider.isSaving ? null : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        final expense = ExpenseModel(
+                          id: '${DateTime.now().millisecondsSinceEpoch}_${FirebaseAuth.instance.currentUser?.uid ?? ''}',
+                          userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+                          amount: double.parse(amountController.text.trim()),
+                          category: categoryController.text.trim(),
+                          paymentMethod: methodController.text.trim(),
+                          description: descriptionController.text.trim(),
+                          date: selectedDate,
+                          createdAt: DateTime.now(),
+                        );
+                        try {
+                          await expenseProvider.addExpense(expense);
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Expense added successfully!'), backgroundColor: Color(0xFF00D9A6)),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(FirebaseService.getFriendlyError(e)), backgroundColor: const Color(0xFFFF4757)),
+                            );
+                          }
+                        }
+                      },
+                      child: expenseProvider.isSaving
+                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Add Expense'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                if (amountController.text.isEmpty) return;
-                final expense = ExpenseModel(
-                  id: DateTime.now().millisecondsSinceEpoch.toString(),
-                  userId: FirebaseAuth.instance.currentUser?.uid ?? '',
-                  amount: double.parse(amountController.text),
-                  category: selectedCategory,
-                  paymentMethod: selectedMethod,
-                  description: descriptionController.text,
-                  date: DateTime.now(),
-                  createdAt: DateTime.now(),
-                );
-                await expenseProvider.addExpense(expense);
-                if (context.mounted) Navigator.pop(context);
-              },
-              child: const Text('Add'),
-            ),
-          ],
         ),
       ),
     );
   }
 
   Future<void> _showEditExpenseDialog(BuildContext context, ExpenseProvider expenseProvider, ExpenseModel expense, String currency) async {
+    final formKey = GlobalKey<FormState>();
     final amountController = TextEditingController(text: expense.amount.toString());
     final descriptionController = TextEditingController(text: expense.description);
-    String selectedCategory = expense.category;
-    String selectedMethod = expense.paymentMethod;
+    final categoryController = TextEditingController(text: expense.category);
+    final methodController = TextEditingController(text: expense.paymentMethod);
+    DateTime selectedDate = expense.date;
+    TimeOfDay selectedTime = TimeOfDay.fromDateTime(expense.date);
 
-    final categories = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Education', 'Other'];
-    final methods = ['Cash', 'Card', 'UPI', 'Bank Transfer'];
-
-    await showDialog(
+    await showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text('Edit Expense', style: Theme.of(context).textTheme.titleLarge),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: amountController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Amount'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descriptionController,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedCategory,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                  onChanged: (v) => setState(() => selectedCategory = v!),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedMethod,
-                  decoration: const InputDecoration(labelText: 'Payment Method'),
-                  items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
-                  onChanged: (v) => setState(() => selectedMethod = v!),
-                ),
-              ],
+        builder: (context, setState) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text('Edit Expense', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: amountController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Amount', prefixText: '₹ '),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter an amount';
+                      if (double.tryParse(value.trim()) == null) return 'Please enter a valid number';
+                      if (double.parse(value.trim()) <= 0) return 'Amount must be greater than 0';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: categoryController,
+                    decoration: const InputDecoration(
+                      labelText: 'Category',
+                      hintText: 'e.g. Food, Travel, Rent, Shopping',
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter a category';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: methodController,
+                    decoration: const InputDecoration(labelText: 'Payment Method', hintText: 'e.g. Cash, Card, UPI'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter a payment method';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: descriptionController,
+                    decoration: const InputDecoration(labelText: 'Description (optional)'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: selectedDate,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime.now().add(const Duration(days: 365)),
+                            );
+                            if (picked != null) {
+                              setState(() => selectedDate = DateTime(
+                                picked.year, picked.month, picked.day,
+                                selectedTime.hour, selectedTime.minute,
+                              ));
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Date', prefixIcon: Icon(Icons.calendar_today, size: 20)),
+                            child: Text(DateFormat('dd MMM yyyy').format(selectedDate)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showTimePicker(
+                              context: context,
+                              initialTime: selectedTime,
+                            );
+                            if (picked != null) {
+                              setState(() {
+                                selectedTime = picked;
+                                selectedDate = DateTime(
+                                  selectedDate.year, selectedDate.month, selectedDate.day,
+                                  picked.hour, picked.minute,
+                                );
+                              });
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Time', prefixIcon: Icon(Icons.access_time, size: 20)),
+                            child: Text(selectedTime.format(context)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: expenseProvider.isSaving ? null : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        final updated = expense.copyWith(
+                          amount: double.parse(amountController.text.trim()),
+                          category: categoryController.text.trim(),
+                          paymentMethod: methodController.text.trim(),
+                          description: descriptionController.text.trim(),
+                          date: selectedDate,
+                        );
+                        try {
+                          await expenseProvider.updateExpense(updated);
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Expense updated successfully!'), backgroundColor: Color(0xFF4DABF7)),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(FirebaseService.getFriendlyError(e)), backgroundColor: const Color(0xFFFF4757)),
+                            );
+                          }
+                        }
+                      },
+                      child: expenseProvider.isSaving
+                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Update Expense'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                if (amountController.text.isEmpty) return;
-                final updated = expense.copyWith(
-                  amount: double.parse(amountController.text),
-                  description: descriptionController.text,
-                  category: selectedCategory,
-                  paymentMethod: selectedMethod,
-                );
-                await expenseProvider.updateExpense(updated);
-                if (context.mounted) Navigator.pop(context);
-              },
-              child: const Text('Update'),
-            ),
-          ],
         ),
       ),
     );

@@ -8,6 +8,7 @@ import '../../app/theme/app_theme.dart';
 import '../../models/income_model.dart';
 import '../../providers/income_provider.dart';
 import '../../providers/user_provider.dart';
+import '../../services/firebase/firebase_service.dart';
 
 class IncomeScreen extends StatefulWidget {
   const IncomeScreen({super.key});
@@ -18,6 +19,14 @@ class IncomeScreen extends StatefulWidget {
 
 class _IncomeScreenState extends State<IncomeScreen> {
   final List<IncomeModel> _selectedForDeletion = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<IncomeProvider>().subscribe();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +41,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
           onRefresh: () async => incomeProvider.subscribe(),
           child: ListView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
             children: [
               _buildHeader(context, incomeProvider, currency, isDark),
               const SizedBox(height: 20),
@@ -54,7 +63,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
                     child: Text('No income records yet. Add your first income!', style: Theme.of(context).textTheme.bodyMedium),
                   ),
                 ),
-              const SizedBox(height: 80),
             ],
           ),
         ),
@@ -64,6 +72,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
         icon: const Icon(Icons.add, size: 20),
         label: const Text('Add Income'),
         backgroundColor: Theme.of(context).primaryColor,
+        elevation: 8,
       ),
     );
   }
@@ -159,6 +168,11 @@ class _IncomeScreenState extends State<IncomeScreen> {
                 await incomeProvider.deleteIncome(income.id);
               }
               setState(() => _selectedForDeletion.clear());
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Incomes deleted'), backgroundColor: Color(0xFF00D9A6)),
+                );
+              }
             },
             icon: const Icon(Icons.delete, size: 16),
             label: const Text('Delete'),
@@ -205,6 +219,11 @@ class _IncomeScreenState extends State<IncomeScreen> {
               final confirmed = await _showDeleteConfirmation(context);
               if (confirmed == true) {
                 await incomeProvider.deleteIncome(income.id);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Income deleted'), backgroundColor: Color(0xFFFF4757)),
+                  );
+                }
               }
             },
             backgroundColor: const Color(0xFFFF4757),
@@ -276,9 +295,14 @@ class _IncomeScreenState extends State<IncomeScreen> {
                         fontSize: 15,
                       ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
-                      DateFormat('MMM d, h:mm a').format(income.date),
-                      style: Theme.of(context).textTheme.bodySmall,
+                      DateFormat('dd MMM yyyy').format(income.date),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
+                    ),
+                    Text(
+                      DateFormat('h:mm a').format(income.date),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10),
                     ),
                   ],
                 ),
@@ -291,138 +315,351 @@ class _IncomeScreenState extends State<IncomeScreen> {
   }
 
   Future<void> _showAddIncomeDialog(BuildContext context, IncomeProvider incomeProvider, String currency) async {
+    final formKey = GlobalKey<FormState>();
     final amountController = TextEditingController();
     final descriptionController = TextEditingController();
-    String selectedCategory = 'Salary';
-    String selectedSource = 'Monthly Pay';
+    final categoryController = TextEditingController(text: 'Salary');
+    final sourceController = TextEditingController(text: 'Monthly Pay');
+    DateTime selectedDate = DateTime.now();
+    TimeOfDay selectedTime = TimeOfDay.now();
 
-    final categories = ['Salary', 'Freelance', 'Investment', 'Business', 'Other'];
-    final sources = ['Monthly Pay', 'Project', 'Dividends', 'Sales', 'Other'];
-
-    await showDialog(
+    await showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text('Add Income', style: Theme.of(context).textTheme.titleLarge),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: amountController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Amount', hintText: 'Enter amount'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedCategory,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                  onChanged: (v) => setState(() => selectedCategory = v!),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descriptionController,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedSource,
-                  decoration: const InputDecoration(labelText: 'Source'),
-                  items: sources.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                  onChanged: (v) => setState(() => selectedSource = v!),
-                ),
-              ],
+        builder: (context, setState) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text('Add Income', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: amountController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Amount', hintText: 'Enter amount', prefixText: '₹ '),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter an amount';
+                      if (double.tryParse(value.trim()) == null) return 'Please enter a valid number';
+                      if (double.parse(value.trim()) <= 0) return 'Amount must be greater than 0';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: categoryController,
+                    decoration: const InputDecoration(labelText: 'Category', hintText: 'e.g. Salary, Freelance'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter a category';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: sourceController,
+                    decoration: const InputDecoration(labelText: 'Source', hintText: 'e.g. Monthly Pay, Project'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter a source';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: descriptionController,
+                    decoration: const InputDecoration(labelText: 'Description (optional)', hintText: 'What was this income for?'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: selectedDate,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime.now().add(const Duration(days: 365)),
+                            );
+                            if (picked != null) {
+                              setState(() => selectedDate = DateTime(
+                                picked.year, picked.month, picked.day,
+                                selectedTime.hour, selectedTime.minute,
+                              ));
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Date', prefixIcon: Icon(Icons.calendar_today, size: 20)),
+                            child: Text(DateFormat('dd MMM yyyy').format(selectedDate)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showTimePicker(
+                              context: context,
+                              initialTime: selectedTime,
+                            );
+                            if (picked != null) {
+                              setState(() {
+                                selectedTime = picked;
+                                selectedDate = DateTime(
+                                  selectedDate.year, selectedDate.month, selectedDate.day,
+                                  picked.hour, picked.minute,
+                                );
+                              });
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Time', prefixIcon: Icon(Icons.access_time, size: 20)),
+                            child: Text(selectedTime.format(context)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: incomeProvider.isSaving ? null : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        final income = IncomeModel(
+                          id: '${DateTime.now().millisecondsSinceEpoch}_${FirebaseAuth.instance.currentUser?.uid ?? ''}',
+                          userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+                          amount: double.parse(amountController.text.trim()),
+                          category: categoryController.text.trim(),
+                          source: sourceController.text.trim(),
+                          description: descriptionController.text.trim(),
+                          date: selectedDate,
+                          createdAt: DateTime.now(),
+                        );
+                        try {
+                          await incomeProvider.addIncome(income);
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Income added successfully!'), backgroundColor: Color(0xFF00D9A6)),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(FirebaseService.getFriendlyError(e)), backgroundColor: const Color(0xFFFF4757)),
+                            );
+                          }
+                        }
+                      },
+                      child: incomeProvider.isSaving
+                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Add Income'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                if (amountController.text.isEmpty) return;
-                final income = IncomeModel(
-                  id: DateTime.now().millisecondsSinceEpoch.toString(),
-                  userId: FirebaseAuth.instance.currentUser?.uid ?? '',
-                  amount: double.parse(amountController.text),
-                  category: selectedCategory,
-                  source: selectedSource,
-                  description: descriptionController.text,
-                  date: DateTime.now(),
-                  createdAt: DateTime.now(),
-                );
-                await incomeProvider.addIncome(income);
-                if (context.mounted) Navigator.pop(context);
-              },
-              child: const Text('Add'),
-            ),
-          ],
         ),
       ),
     );
   }
 
   Future<void> _showEditIncomeDialog(BuildContext context, IncomeProvider incomeProvider, IncomeModel income, String currency) async {
+    final formKey = GlobalKey<FormState>();
     final amountController = TextEditingController(text: income.amount.toString());
     final descriptionController = TextEditingController(text: income.description);
-    String selectedCategory = income.category;
-    String selectedSource = income.source;
+    final categoryController = TextEditingController(text: income.category);
+    final sourceController = TextEditingController(text: income.source);
+    DateTime selectedDate = income.date;
+    TimeOfDay selectedTime = TimeOfDay.fromDateTime(income.date);
 
-    final categories = ['Salary', 'Freelance', 'Investment', 'Business', 'Other'];
-    final sources = ['Monthly Pay', 'Project', 'Dividends', 'Sales', 'Other'];
-
-    await showDialog(
+    await showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text('Edit Income', style: Theme.of(context).textTheme.titleLarge),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: amountController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Amount'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedCategory,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                  onChanged: (v) => setState(() => selectedCategory = v!),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descriptionController,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedSource,
-                  decoration: const InputDecoration(labelText: 'Source'),
-                  items: sources.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                  onChanged: (v) => setState(() => selectedSource = v!),
-                ),
-              ],
+        builder: (context, setState) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text('Edit Income', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: amountController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Amount', prefixText: '₹ '),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter an amount';
+                      if (double.tryParse(value.trim()) == null) return 'Please enter a valid number';
+                      if (double.parse(value.trim()) <= 0) return 'Amount must be greater than 0';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: categoryController,
+                    decoration: const InputDecoration(labelText: 'Category', hintText: 'e.g. Salary, Freelance'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter a category';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: sourceController,
+                    decoration: const InputDecoration(labelText: 'Source', hintText: 'e.g. Monthly Pay, Project'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return 'Please enter a source';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: descriptionController,
+                    decoration: const InputDecoration(labelText: 'Description (optional)'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: selectedDate,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime.now().add(const Duration(days: 365)),
+                            );
+                            if (picked != null) {
+                              setState(() => selectedDate = DateTime(
+                                picked.year, picked.month, picked.day,
+                                selectedTime.hour, selectedTime.minute,
+                              ));
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Date', prefixIcon: Icon(Icons.calendar_today, size: 20)),
+                            child: Text(DateFormat('dd MMM yyyy').format(selectedDate)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showTimePicker(
+                              context: context,
+                              initialTime: selectedTime,
+                            );
+                            if (picked != null) {
+                              setState(() {
+                                selectedTime = picked;
+                                selectedDate = DateTime(
+                                  selectedDate.year, selectedDate.month, selectedDate.day,
+                                  picked.hour, picked.minute,
+                                );
+                              });
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Time', prefixIcon: Icon(Icons.access_time, size: 20)),
+                            child: Text(selectedTime.format(context)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: incomeProvider.isSaving ? null : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        final updated = income.copyWith(
+                          amount: double.parse(amountController.text.trim()),
+                          category: categoryController.text.trim(),
+                          source: sourceController.text.trim(),
+                          description: descriptionController.text.trim(),
+                          date: selectedDate,
+                        );
+                        try {
+                          await incomeProvider.updateIncome(updated);
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Income updated successfully!'), backgroundColor: Color(0xFF4DABF7)),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(FirebaseService.getFriendlyError(e)), backgroundColor: const Color(0xFFFF4757)),
+                            );
+                          }
+                        }
+                      },
+                      child: incomeProvider.isSaving
+                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Update Income'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                if (amountController.text.isEmpty) return;
-                final updated = income.copyWith(
-                  amount: double.parse(amountController.text),
-                  category: selectedCategory,
-                  source: selectedSource,
-                  description: descriptionController.text,
-                );
-                await incomeProvider.updateIncome(updated);
-                if (context.mounted) Navigator.pop(context);
-              },
-              child: const Text('Update'),
-            ),
-          ],
         ),
       ),
     );

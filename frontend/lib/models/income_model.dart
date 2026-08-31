@@ -9,6 +9,8 @@ class IncomeModel {
   final String description;
   final DateTime date;
   final DateTime createdAt;
+  final String? walletId;
+  final String? walletName;
 
   const IncomeModel({
     required this.id,
@@ -19,6 +21,8 @@ class IncomeModel {
     required this.description,
     required this.date,
     required this.createdAt,
+    this.walletId,
+    this.walletName,
   });
 
   factory IncomeModel.fromMap(Map<String, dynamic> map, String documentId) {
@@ -31,11 +35,13 @@ class IncomeModel {
       description: map['description'] ?? '',
       date: (map['date'] as Timestamp).toDate(),
       createdAt: (map['createdAt'] as Timestamp).toDate(),
+      walletId: map['walletId'],
+      walletName: map['walletName'],
     );
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = <String, dynamic>{
       'userId': userId,
       'amount': amount,
       'category': category,
@@ -44,6 +50,11 @@ class IncomeModel {
       'date': Timestamp.fromDate(date),
       'createdAt': Timestamp.fromDate(createdAt),
     };
+    if (walletId != null) {
+      map['walletId'] = walletId;
+      map['walletName'] = walletName;
+    }
+    return map;
   }
 
   IncomeModel copyWith({
@@ -55,6 +66,8 @@ class IncomeModel {
     String? description,
     DateTime? date,
     DateTime? createdAt,
+    String? walletId,
+    String? walletName,
   }) {
     return IncomeModel(
       id: id ?? this.id,
@@ -65,6 +78,8 @@ class IncomeModel {
       description: description ?? this.description,
       date: date ?? this.date,
       createdAt: createdAt ?? this.createdAt,
+      walletId: walletId ?? this.walletId,
+      walletName: walletName ?? this.walletName,
     );
   }
 }

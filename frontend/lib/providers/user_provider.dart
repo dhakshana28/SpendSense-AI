@@ -19,6 +19,59 @@ class UserProvider extends ChangeNotifier {
   String? get error => _error;
   bool get notificationsEnabled => _notificationsEnabled;
 
+  /// The user's selected financial segment id (e.g. "freelancer"), if set.
+  String? get persona => _user?.persona;
+
+  /// Whether the user has completed a financial profile (a segment selected).
+  bool get hasCompletedProfile => _user?.persona != null && _user!.persona!.isNotEmpty;
+
+  /// Updates the user's financial segment and persists it to Firebase.
+  Future<void> updatePersona(String personaId) async {
+    await updateFinancialProfile(persona: personaId);
+  }
+
+  /// Updates optional financial profile fields without overwriting existing
+  /// financial data. Persists to users/{uid} and refreshes provider state.
+  Future<void> updateFinancialProfile({
+    String? name,
+    int? age,
+    String? occupation,
+    String? persona,
+    double? monthlyIncome,
+    List<String>? financialGoals,
+  }) async {
+    final current = _user;
+    if (current == null) return;
+
+    final updated = current.copyWith(
+      name: name,
+      age: age,
+      occupation: occupation,
+      persona: persona,
+      monthlyIncome: monthlyIncome,
+      financialGoals: financialGoals,
+    );
+    _setLoading(true);
+    try {
+      await _firebaseService.saveUser(updated);
+      _user = updated;
+      _error = null;
+      debugPrint('UserProvider.updateFinancialProfile: saved for ${updated.uid} (persona=$persona)');
+      notifyListeners();
+    } catch (error, stackTrace) {
+      debugPrint('UserProvider.updateFinancialProfile error: $error');
+      _error = error.toString();
+      FlutterError.reportError(FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        context: ErrorDescription('In UserProvider.updateFinancialProfile'),
+      ));
+      rethrow;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
   Future<void> loadCurrentUser() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     if (firebaseUser == null) {
