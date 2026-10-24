@@ -136,7 +136,7 @@ class GeminiService {
 
       final discovered = await discoverReachableBackend(
         candidates: ApiConfig.candidateBaseUrls,
-        timeout: const Duration(seconds: 15),
+        timeout: const Duration(seconds: 35),
       );
 
       if (discovered == null) {

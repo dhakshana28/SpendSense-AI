@@ -56,9 +56,17 @@ class ApiConfig {
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString(prefKeyCustomBackendUrl)?.trim() ?? '';
       if (saved.isNotEmpty) {
-        _customBaseUrl = trimTrailingSlash(saved);
-        _activeBaseUrl = _customBaseUrl;
-        debugPrint('[ApiConfig] Loaded custom backend URL: $_customBaseUrl');
+        final formatted = trimTrailingSlash(saved);
+        if (formatted.contains('trycloudflare.com') && defaultProductionBackendUrl.isNotEmpty) {
+          debugPrint('[ApiConfig] Discarding temporary quick tunnel override in favor of 24/7 cloud backend.');
+          await prefs.remove(prefKeyCustomBackendUrl);
+          _customBaseUrl = null;
+          _activeBaseUrl = null;
+        } else {
+          _customBaseUrl = formatted;
+          _activeBaseUrl = _customBaseUrl;
+          debugPrint('[ApiConfig] Loaded custom backend URL: $_customBaseUrl');
+        }
       }
       final savedKey = prefs.getString(prefKeyCustomAuthKey)?.trim() ?? '';
       if (savedKey.isNotEmpty) {
