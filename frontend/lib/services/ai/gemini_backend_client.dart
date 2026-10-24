@@ -74,6 +74,9 @@ class DiscoveredBackend {
 /// Maps a backend HTTP status to the user-facing message required by the
 /// task spec. Never leaks keys, stack traces, or internals.
 String geminiBackendErrorMessage({required int statusCode}) {
+  if (statusCode == 0) {
+    return 'Could not reach the SpendSense backend. Check your network or PC server status.';
+  }
   if (statusCode == 400) {
     return 'The AI could not answer that request. Please rephrase and try again.';
   }
@@ -105,7 +108,7 @@ Future<BackendHealth> fetchBackendHealth({
 }) async {
   final isRemote = baseUrl.startsWith('https://');
   final effectiveTimeout = timeout ??
-      (isRemote ? const Duration(seconds: 12) : const Duration(seconds: 3));
+      (isRemote ? const Duration(seconds: 35) : const Duration(seconds: 3));
 
   try {
     final uri = Uri.parse('$baseUrl/health');
@@ -135,7 +138,7 @@ Future<BackendHealth> fetchBackendHealth({
 /// If none has Gemini configured, falls back to any reachable backend.
 Future<DiscoveredBackend?> discoverReachableBackend({
   required List<String> candidates,
-  Duration timeout = const Duration(seconds: 15),
+  Duration timeout = const Duration(seconds: 35),
 }) async {
   if (candidates.isEmpty) return null;
 

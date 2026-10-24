@@ -19,15 +19,22 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from pydantic import BaseModel, Field
 
-# Load the backend .env that lives next to this file
-ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-load_dotenv(dotenv_path=ENV_PATH)
+# Reliably load backend/.env with override=True so it takes precedence
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(BASE_DIR, ".env")
+if os.path.isfile(ENV_PATH):
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
+else:
+    alt_env = os.path.abspath(".env")
+    if os.path.isfile(alt_env):
+        load_dotenv(dotenv_path=alt_env, override=True)
 
 # The Gemini API key must exist ONLY here on the backend/server environment.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
-# SpendSense Backend Authentication Key (for securing public tunnel endpoints)
-BACKEND_AUTH_KEY = os.getenv("BACKEND_AUTH_KEY", "").strip()
+# SpendSense Backend Authentication Key (for securing public tunnel and cloud endpoints)
+DEFAULT_BACKEND_AUTH_KEY = "ss_key_8e4f9b2d1c6a7e305928416d8a7c2e0b"
+BACKEND_AUTH_KEY = os.getenv("BACKEND_AUTH_KEY", "").strip() or DEFAULT_BACKEND_AUTH_KEY
 
 # Default to verified active Gemini model on v1beta. Override with GEMINI_MODEL.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
@@ -76,11 +83,13 @@ async def check_rate_limit(client_ip: str) -> bool:
 
 
 def verify_auth(request: Request):
-    """Enforce backend auth key when BACKEND_AUTH_KEY is configured.
+    """Enforce backend auth key when BACKEND_AUTH_KEY or DEFAULT_BACKEND_AUTH_KEY is configured.
     
     Accepts X-SpendSense-Auth-Key header, X-API-Key header, or Bearer token.
+    Permits both the environment-configured key and the shared app default key.
     """
-    if not BACKEND_AUTH_KEY:
+    valid_keys = {k for k in (BACKEND_AUTH_KEY, DEFAULT_BACKEND_AUTH_KEY) if k}
+    if not valid_keys:
         return
 
     token = request.headers.get("x-spendsense-auth-key") or request.headers.get("x-api-key")
@@ -89,7 +98,7 @@ def verify_auth(request: Request):
         if auth_header.lower().startswith("bearer "):
             token = auth_header[7:].strip()
 
-    if not token or token != BACKEND_AUTH_KEY:
+    if not token or token not in valid_keys:
         raise HTTPException(
             status_code=401,
             detail="Invalid or missing SpendSense backend authentication key.",

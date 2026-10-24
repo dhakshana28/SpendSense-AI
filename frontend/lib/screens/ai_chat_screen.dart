@@ -653,15 +653,55 @@ class _AIChatScreenState extends State<AIChatScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Use remote hosting (e.g. Render) to keep Gemini working 24/7 even with your laptop turned off.',
+                      'Connects to your PC-hosted SpendSense backend. Tap "Auto-Detect PC on Wi-Fi" when on home network to sync the active connection, or enter your stable Named Cloudflare Tunnel or Tailscale VPN URL.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
                     ),
                     const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF6C63FF),
+                          side: const BorderSide(color: Color(0xFF6C63FF)),
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: isProbing
+                            ? null
+                            : () async {
+                                setSheetState(() {
+                                  isProbing = true;
+                                  probeResult = 'Scanning local network for SpendSense PC (192.168.1.9:8000)...';
+                                });
+                                final discovered = await ApiConfig.autoDiscoverTunnelUrlFromLan();
+                                if (discovered != null) {
+                                  controller.text = discovered;
+                                  final health = await fetchBackendHealth(baseUrl: discovered);
+                                  setSheetState(() {
+                                    isProbing = false;
+                                    probeSuccess = health.reachable;
+                                    probeResult = health.reachable
+                                        ? '✓ Auto-connected to PC!\nActive URL: $discovered\nModel: ${health.model}'
+                                        : '✓ Discovered $discovered, but health probe timed out.';
+                                  });
+                                } else {
+                                  setSheetState(() {
+                                    isProbing = false;
+                                    probeSuccess = false;
+                                    probeResult = 'Could not locate PC at 192.168.1.9:8000. Ensure phone and PC are on the same Wi-Fi and supervisor is running.';
+                                  });
+                                }
+                              },
+                        icon: const Icon(Icons.wifi_find, size: 20),
+                        label: const Text('Auto-Detect PC on Wi-Fi', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
                     TextField(
                       controller: controller,
                       decoration: InputDecoration(
-                        labelText: 'Backend URL (Production HTTPS / Local)',
-                        hintText: 'https://spendsense-ai-backend.onrender.com',
+                        labelText: 'Backend URL (Named Tunnel / Tailscale / Public)',
+                        hintText: 'https://ai.yourdomain.com or http://100.x.y.z:8000',
                         prefixIcon: const Icon(Icons.link),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),

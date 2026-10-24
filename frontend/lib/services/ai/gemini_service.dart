@@ -29,6 +29,8 @@ enum GeminiErrorType {
 class GeminiErrorMessages {
   static const String noInternet =
       'No Internet Connection. Please check your network and try again.';
+  static const String authFailed =
+      'Backend authentication failed. Please verify your authentication key in Server Settings.';
   static const String apiKeyInvalid =
       'Gemini API Key is not configured on the server. Please contact the app developer.';
   static const String quotaExceeded =
@@ -325,7 +327,10 @@ class GeminiService {
     if (msg.contains('TimeoutException') || msg.contains('timed out')) {
       return GeminiErrorMessages.timeout;
     }
-    if (msg.contains('401') || msg.contains('API_KEY_INVALID')) {
+    if (msg.contains('401')) {
+      return GeminiErrorMessages.authFailed;
+    }
+    if (msg.contains('403') || msg.contains('API_KEY_INVALID')) {
       return GeminiErrorMessages.apiKeyInvalid;
     }
     if (msg.contains('429') || msg.contains('quota')) {

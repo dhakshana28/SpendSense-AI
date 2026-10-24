@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Central backend configuration for the SpendSense AI app.
@@ -36,7 +39,8 @@ class ApiConfig {
     defaultValue: '',
   );
 
-  /// Default production remote HTTPS URL deployed on Render.
+  /// Default production remote HTTPS URL hosted 24/7 on Render.
+  /// Works independently of personal PC across Wi-Fi and mobile data.
   static const String defaultProductionBackendUrl = 'https://spendsense-ai-backend.onrender.com';
 
   /// Default production auth key matching the secure backend deployment.
@@ -107,6 +111,46 @@ class ApiConfig {
     }
   }
 
+  /// Automatically discovers the active public tunnel URL or LAN URL by probing the PC
+  /// on the local Wi-Fi network at `/api/tunnel-info`.
+  ///
+  /// When found, saves the discovered URL to persistent storage so the app connects
+  /// seamlessly without requiring an APK rebuild or manual configuration.
+  static Future<String?> autoDiscoverTunnelUrlFromLan({
+    List<String>? candidateLanIps,
+  }) async {
+    final defaultIps = <String>[
+      if (dotenv.isInitialized && (dotenv.env['BACKEND_LAN_URL'] ?? '').isNotEmpty)
+        dotenv.env['BACKEND_LAN_URL']!,
+      'http://192.168.1.9:8000',
+      'http://10.0.2.2:8000',
+      'http://127.0.0.1:8000',
+      'http://localhost:8000',
+    ];
+    final probeList = candidateLanIps ?? defaultIps;
+    final distinct = probeList.map(trimTrailingSlash).toSet().toList();
+
+    for (final base in distinct) {
+      try {
+        final uri = Uri.parse('$base/api/tunnel-info');
+        final res = await http.get(uri).timeout(const Duration(milliseconds: 2500));
+        if (res.statusCode == 200) {
+          final decoded = jsonDecode(res.body);
+          if (decoded is Map) {
+            final pubUrl = (decoded['publicUrl'] ?? '').toString().trim();
+            final targetUrl = pubUrl.isNotEmpty ? pubUrl : base;
+            await setCustomBaseUrl(targetUrl);
+            debugPrint('[ApiConfig] Auto-discovered backend at $base (using: $targetUrl)');
+            return targetUrl;
+          }
+        }
+      } catch (_) {
+        // Continue probing other candidates
+      }
+    }
+    return null;
+  }
+
   /// Returns the configured auth key for backend authentication.
   static String get authKey {
     if (_customAuthKey != null && _customAuthKey!.isNotEmpty) {
@@ -174,8 +218,9 @@ class ApiConfig {
     if (_dartDefineBaseUrl.isNotEmpty) list.add(trimTrailingSlash(_dartDefineBaseUrl));
     if (envBase.isNotEmpty) list.add(trimTrailingSlash(envBase));
 
-    // Default remote production HTTPS URL on Render
-    list.add(defaultProductionBackendUrl);
+    if (defaultProductionBackendUrl.isNotEmpty) {
+      list.add(trimTrailingSlash(defaultProductionBackendUrl));
+    }
 
     // 3. Explicit active URL if already resolved
     if (_activeBaseUrl != null && _activeBaseUrl!.isNotEmpty) {
@@ -206,7 +251,7 @@ class ApiConfig {
     }
 
     // Preserve custom URL at top priority if explicitly specified by user or test
-    final distinct = list.map(trimTrailingSlash).toSet().toList();
+    final distinct = list.map(trimTrailingSlash).where((u) => u.isNotEmpty).toSet().toList();
     if (_customBaseUrl != null && _customBaseUrl!.isNotEmpty) {
       final custom = trimTrailingSlash(_customBaseUrl!);
       distinct.remove(custom);
@@ -229,7 +274,7 @@ class ApiConfig {
     if (candidates.isNotEmpty) {
       return candidates.first;
     }
-    return defaultProductionBackendUrl;
+    return 'http://127.0.0.1:8000';
   }
 
   static String get healthUrl => '$baseUrl/health';

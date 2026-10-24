@@ -12,6 +12,6 @@ services:
       - key: GEMINI_MODEL
         value: gemini-3.5-flash-lite
       - key: BACKEND_AUTH_KEY
-        sync: false
+        value: ss_key_8e4f9b2d1c6a7e305928416d8a7c2e0b
       - key: PYTHON_VERSION
         value: "3.11.9"

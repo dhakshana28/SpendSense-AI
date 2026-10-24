@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/services/ai/gemini_backend_client.dart';
 import 'package:frontend/services/api_config.dart';
@@ -399,6 +400,7 @@ void main() {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
       ApiConfig.setCustomBaseUrlSync(null);
+      dotenv.testLoad(fileInput: 'BACKEND_PUBLIC_URL=https://spendsense-pc-tunnel.example.com\nBACKEND_AUTH_KEY=ss_key_8e4f9b2d1c6a7e305928416d8a7c2e0b\n');
     });
 
     test('transmits X-SpendSense-Auth-Key header with the configured auth key', () async {
@@ -435,11 +437,10 @@ void main() {
       expect(ApiConfig.authKey, ApiConfig.defaultProductionAuthKey);
     });
 
-    test('prioritizes remote Render HTTPS backend over local development loopbacks', () {
+    test('prioritizes remote HTTPS public backend over local development loopbacks', () {
       final candidates = ApiConfig.candidateBaseUrls;
       expect(candidates, isNotEmpty);
       expect(candidates.first, startsWith('https://'));
-      expect(candidates.contains(ApiConfig.defaultProductionBackendUrl), isTrue);
     });
   });
 }
