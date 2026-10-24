@@ -2,15 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
 
 import '../../models/expense_model.dart';
 import '../../models/income_model.dart';
 import '../../models/budget_model.dart';
 import '../../models/goal_model.dart';
 import '../../models/chat_message_model.dart';
-import '../../models/financial_persona.dart';
+import '../api_config.dart';
 import 'ai_cache_service.dart';
+import 'gemini_backend_client.dart';
 
 /// Error types that Gemini can return.
 enum GeminiErrorType {
@@ -27,16 +27,26 @@ enum GeminiErrorType {
 
 /// User-friendly error messages for specific failure modes.
 class GeminiErrorMessages {
-  static const String noInternet = 'No Internet Connection. Please check your network and try again.';
-  static const String apiKeyInvalid = 'Gemini API Key Invalid. Please check your API key in the .env file.';
-  static const String quotaExceeded = 'Gemini API Quota Exceeded. Please try again later or check your billing.';
-  static const String serviceUnavailable = 'Gemini Service Unavailable. Please try again later.';
-  static const String timeout = 'Gemini Timeout. The request took too long. Please check your internet connection.';
-  static const String modelNotFound = 'Gemini model not found. The configured model may not exist.';
-  static const String dnsFailure = 'DNS resolution failed. Please check your internet connection.';
-  static const String sslFailure = 'SSL/TLS handshake failed. Please check your network or firewall settings.';
-  static const String blockedNetwork = 'Connection blocked. This app may be blocked by your network or firewall.';
-  static const String unknown = 'An unexpected error occurred. Please try again later.';
+  static const String noInternet =
+      'No Internet Connection. Please check your network and try again.';
+  static const String apiKeyInvalid =
+      'Gemini API Key is not configured on the server. Please contact the app developer.';
+  static const String quotaExceeded =
+      'Gemini API Quota Exceeded. Please try again later or check your billing.';
+  static const String serviceUnavailable =
+      'Gemini Service Unavailable. Please try again later.';
+  static const String timeout =
+      'Gemini Timeout. The request took too long. Please check your internet connection.';
+  static const String modelNotFound =
+      'Gemini model not found. The configured model may not exist.';
+  static const String dnsFailure =
+      'DNS resolution failed. Please check your internet connection.';
+  static const String sslFailure =
+      'SSL/TLS handshake failed. Please check your network or firewall settings.';
+  static const String blockedNetwork =
+      'Connection blocked. This app may be blocked by your network or firewall.';
+  static const String unknown =
+      'An unexpected error occurred. Please try again later.';
 }
 
 class GeminiResponse {
@@ -55,35 +65,51 @@ class GeminiResponse {
   });
 }
 
+/// Gemini AI service for the Flutter app.
+///
+/// Communicates EXCLUSIVELY through the secure SpendSense AI backend proxy.
+/// The Gemini API key remains strictly on the server and is never bundled in Flutter.
 class GeminiService {
-  static GenerativeModel? _model;
+  static String get backendBaseUrl => ApiConfig.baseUrl;
+
   static bool _initialized = false;
-  static bool _hasApiKey = false;
+  static bool _backendReady = false;
+  static bool _backendReachable = false;
+  static bool _geminiConfigured = false;
   static String _lastModelName = '';
   static bool _connectionTested = false;
   static bool _connectionSuccessful = false;
 
-  // Cooldown mechanism - only for genuine failures, not startup tests
+  static const Duration _requestTimeout = Duration(seconds: 25);
+
+  // Cooldown mechanism - only for genuine failures, not startup tests.
   static GeminiErrorType _lastErrorType = GeminiErrorType.none;
   static DateTime? _cooldownUntil;
-  static const Duration _quotaCooldown = Duration(minutes: 5);
-  static const Duration _rateLimitCooldown = Duration(seconds: 30);
-  static const Duration _serviceUnavailableCooldown = Duration(minutes: 2);
-  static const Duration _networkErrorCooldown = Duration(seconds: 10);
-  static const Duration _defaultCooldown = Duration(minutes: 1);
+  static const Duration _quotaCooldown = Duration(seconds: 8);
+  static const Duration _rateLimitCooldown = Duration(seconds: 5);
+  static const Duration _serviceUnavailableCooldown = Duration(seconds: 4);
+  static const Duration _networkErrorCooldown = Duration(seconds: 3);
+  static const Duration _defaultCooldown = Duration(seconds: 2);
 
   /// ---- PUBLIC STATUS ----
 
-  /// Whether Gemini is fully available (configured, initialized, and not on cooldown).
-  static bool get isAvailable => _hasApiKey && _model != null && !isOnCooldown;
+  /// Whether Gemini is available (backend reachable, configured, and not on cooldown).
+  static bool get isAvailable => _backendReady && !isOnCooldown;
 
-  /// Whether Gemini is configured and can ATTEMPT a request, regardless of cooldown.
-  /// This is used for chat so Gemini always remains the primary engine.
-  static bool get canAttemptRequest => _hasApiKey && _model != null;
+  /// Whether a Gemini request can be attempted (backend configured).
+  static bool get canAttemptRequest => _backendReady;
+
+  /// Whether the backend host answered /health.
+  static bool get isBackendReachable => _backendReachable;
+
+  /// Whether backend has a valid Gemini key configured.
+  static bool get isGeminiConfigured => _geminiConfigured;
+
   static bool get isConnectionTested => _connectionTested;
   static bool get isConnectionSuccessful => _connectionSuccessful;
   static String get currentModelName => _lastModelName;
-  static bool get isOnCooldown => _cooldownUntil != null && DateTime.now().isBefore(_cooldownUntil!);
+  static bool get isOnCooldown =>
+      _cooldownUntil != null && DateTime.now().isBefore(_cooldownUntil!);
   static GeminiErrorType get lastErrorType => _lastErrorType;
   static DateTime? get cooldownUntil => _cooldownUntil;
   static Duration? get remainingCooldown {
@@ -94,142 +120,164 @@ class GeminiService {
 
   /// ---- INITIALIZATION ----
 
-  static Future<void> initialize() async {
-    if (_initialized) return;
+  static Future<void> initialize({bool force = false}) async {
+    if (_initialized && _backendReady && !force) return;
     _initialized = true;
 
     try {
-      // Only load .env if it hasn't been loaded already (main.dart loads it first).
+      await ApiConfig.loadSavedUrl();
       if (!dotenv.isInitialized) {
-        await dotenv.load(fileName: '.env');
-      }
-      debugPrint('Gemini Init: .env loaded successfully');
-
-      final apiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
-      String modelName = dotenv.env['GEMINI_MODEL'] ?? 'gemini-3.5-flash-lite';
-
-      // ====== VERIFY API KEY ======
-      if (apiKey.isEmpty || apiKey == 'your_gemini_api_key_here') {
-        debugPrint('❌ Gemini Init: API Key Missing - No valid Gemini API key found');
-        debugPrint('GeminiService: No valid API key found. Using local AI fallback.');
-        _hasApiKey = false;
-        return;
-      }
-      debugPrint('✓ Gemini Init: API Key Loaded');
-
-      // ====== VERIFY MODEL NAME ======
-      _lastModelName = modelName;
-      final supportedModels = [
-        'gemini-3.5-flash-lite',
-        'gemini-3.5-flash',
-        'gemini-3.6-flash',
-        'gemini-3.7-flash',
-        'gemini-3.1-flash-lite',
-        'gemini-flash-latest',
-      ];
-
-      if (!supportedModels.contains(modelName)) {
-        debugPrint('⚠️ Gemini Init: Configured model "$modelName" may not be supported. Attempting anyway.');
+        try {
+          await dotenv.load(fileName: '.env');
+        } catch (_) {}
       }
 
-      try {
-        _model = GenerativeModel(
-          model: modelName,
-          apiKey: apiKey,
-          generationConfig: GenerationConfig(
-            temperature: 0.7,
-            topP: 0.95,
-            topK: 40,
-            maxOutputTokens: 2048,
-          ),
-        );
-        _hasApiKey = true;
-        debugPrint('✓ Gemini Init: Model Initialized (model: $modelName)');
-        debugPrint('[GEMINI] Model: $modelName');
-      } catch (e) {
-        debugPrint('❌ Gemini Init: Model Initialization failed: $e');
-        _hasApiKey = false;
+      final discovered = await discoverReachableBackend(
+        candidates: ApiConfig.candidateBaseUrls,
+        timeout: const Duration(seconds: 15),
+      );
+
+      if (discovered == null) {
+        debugPrint('❌ Gemini Init: no reachable backend candidate found within probe timeout.');
+        _backendReachable = false;
+        _backendReady = false;
         return;
       }
 
-      // ====== TEST CONNECTION (non-blocking, no cooldown on failure) ======
-      // Do NOT apply cooldown for startup test failures. Only actual user
-      // requests should trigger cooldown. This ensures Gemini remains the
-      // primary engine even if the initial test fails.
+      ApiConfig.setActiveBaseUrl(discovered.url);
+      _backendReachable = true;
+      _geminiConfigured = discovered.health.geminiConfigured;
+      _lastModelName = discovered.health.model;
+
+      if (!_geminiConfigured) {
+        debugPrint('❌ Gemini Init: Backend is running at ${discovered.url}, but GEMINI_API_KEY is not configured on server.');
+        _backendReady = false;
+        return;
+      }
+
+      _backendReady = true;
+      debugPrint('✓ Gemini Init: Backend ready at ${discovered.url} (model: $_lastModelName)');
+
+      // Initial test connection without triggering user cooldown
       await _testConnection();
-
     } catch (e) {
-      debugPrint('❌ GeminiService: Initialization failed: $e');
-      debugPrint('   Exception type: ${e.runtimeType}');
-      debugPrint('   Stack trace:');
-      debugPrint('   ${StackTrace.current}');
-      _hasApiKey = false;
+      debugPrint('❌ GeminiService initialization error: $e');
+      _backendReachable = false;
+      _backendReady = false;
+    }
+  }
+
+  /// Re-probes backend health candidates concurrently. Safe to call repeatedly and makes the app self-healing.
+  static Future<bool> refreshBackendStatus() async {
+    try {
+      await ApiConfig.loadSavedUrl();
+      if (!dotenv.isInitialized) {
+        try {
+          await dotenv.load(fileName: '.env');
+        } catch (_) {}
+      }
+
+      final discovered = await discoverReachableBackend(
+        candidates: ApiConfig.candidateBaseUrls,
+        timeout: const Duration(seconds: 15),
+      );
+
+      if (discovered == null) {
+        debugPrint('❌ Gemini status refresh: no reachable backend candidate found.');
+        _backendReachable = false;
+        _backendReady = false;
+        return false;
+      }
+
+      ApiConfig.setActiveBaseUrl(discovered.url);
+      _backendReachable = true;
+      _geminiConfigured = discovered.health.geminiConfigured;
+      _lastModelName = discovered.health.model;
+
+      if (_geminiConfigured) {
+        _backendReady = true;
+        _connectionTested = true;
+        _connectionSuccessful = true;
+        debugPrint('✓ Gemini status refreshed: live at ${discovered.url} (model: $_lastModelName)');
+        return true;
+      } else {
+        debugPrint('❌ Gemini status refreshed: backend up at ${discovered.url}, but GEMINI_API_KEY not configured.');
+        _backendReady = false;
+        return false;
+      }
+    } catch (e) {
+      debugPrint('❌ Gemini status refresh failed: $e');
+      _backendReachable = false;
+      _backendReady = false;
+      return false;
     }
   }
 
   /// ---- CONNECTION TEST ----
-  /// Tests the connection but does NOT apply cooldown on failure.
-  /// Startup transient failures should not block Gemini from being used.
   static Future<void> _testConnection() async {
-    if (!_hasApiKey || _model == null) return;
+    if (!_backendReady) return;
 
     try {
-      debugPrint('GeminiService: Sending test request...');
-      final testPrompt = 'Reply with the word OK.';
-      final response = await _model!.generateContent(
-        [Content.text(testPrompt)],
+      debugPrint('GeminiService: Sending lightweight health test request...');
+      final text = await sendGeminiChatRequest(
+        baseUrl: backendBaseUrl,
+        prompt: 'Reply with OK.',
+        timeout: const Duration(seconds: 15),
       );
-      final text = response.text?.trim() ?? '';
 
-      if (text.isNotEmpty && text.toUpperCase().contains('OK')) {
+      if (text.isNotEmpty) {
         _connectionSuccessful = true;
         _connectionTested = true;
-        debugPrint('✓ Gemini Connection Successful');
-      } else {
-        _connectionSuccessful = true;
-        _connectionTested = true;
-        debugPrint('✓ Gemini Connection Successful (response: "$text")');
+        debugPrint('✓ Gemini Connection Verified (model response: "$text")');
       }
     } catch (e) {
       _connectionTested = true;
       _connectionSuccessful = false;
       _lastErrorType = _classifyError(e);
       _logDetailedError('GeminiService: Connection test failed', e);
-      // IMPORTANT: Do NOT apply cooldown for startup test failures.
-      // The next actual user request will retry Gemini.
-      debugPrint('GeminiService: Connection test failed but NOT applying cooldown. '
-          'Next request will retry Gemini.');
+      debugPrint('GeminiService: Startup test failed, but next user request will retry Gemini.');
     }
   }
 
   /// ---- ERROR CLASSIFICATION ----
 
   static GeminiErrorType _classifyError(Object e) {
-    final msg = e.toString();
-
-    if (msg.contains('429') || msg.contains('quota') || msg.contains('Quota') || msg.contains('RATE_LIMIT')) {
-      if (msg.contains('RATE_LIMIT')) return GeminiErrorType.rateLimitExceeded;
-      return GeminiErrorType.quotaExceeded;
+    if (e is GeminiBackendException) {
+      if (e.statusCode == 0) {
+        return e.userMessage.toLowerCase().contains('timed out')
+            ? GeminiErrorType.timeout
+            : GeminiErrorType.networkError;
+      }
+      return _classifyStatus(e.statusCode);
     }
-    if (msg.contains('401') || msg.contains('API_KEY_INVALID') || msg.contains('Unauthorized')) {
+
+    final msg = e.toString();
+    if (msg.contains('429') || msg.contains('quota') || msg.contains('RATE_LIMIT')) {
+      return GeminiErrorType.rateLimitExceeded;
+    }
+    if (msg.contains('401') || msg.contains('403') || msg.contains('API_KEY_INVALID')) {
       return GeminiErrorType.invalidApiKey;
     }
-    if (msg.contains('SocketException') || msg.contains('No address') || msg.contains('Connection refused')) {
+    if (msg.contains('SocketException') || msg.contains('Connection refused') || msg.contains('No address')) {
       return GeminiErrorType.networkError;
     }
     if (msg.contains('TimeoutException') || msg.contains('timed out')) {
       return GeminiErrorType.timeout;
     }
-    if (msg.contains('500') || msg.contains('503') || msg.contains('Internal') || msg.contains('Unavailable')) {
+    if (msg.contains('500') || msg.contains('502') || msg.contains('503')) {
       return GeminiErrorType.serviceUnavailable;
     }
-    if (msg.contains('404') ||
-        msg.contains('not found') ||
-        msg.contains('NOT_FOUND') ||
-        msg.contains('no longer available') ||
-        msg.contains('does not exist')) {
+    if (msg.contains('404')) {
       return GeminiErrorType.modelNotFound;
     }
+    return GeminiErrorType.unknown;
+  }
+
+  static GeminiErrorType _classifyStatus(int statusCode) {
+    if (statusCode == 429) return GeminiErrorType.rateLimitExceeded;
+    if (statusCode == 401 || statusCode == 403) return GeminiErrorType.invalidApiKey;
+    if (statusCode == 404) return GeminiErrorType.modelNotFound;
+    if (statusCode >= 500) return GeminiErrorType.serviceUnavailable;
     return GeminiErrorType.unknown;
   }
 
@@ -255,121 +303,42 @@ class GeminiService {
     debugPrint('⏳ Gemini on cooldown until ${_cooldownUntil!.toLocal()} (${errorType.name})');
   }
 
-  /// Resets cooldown so the next request will retry Gemini.
   static void resetCooldown() {
     _cooldownUntil = null;
-    debugPrint('GeminiService: Cooldown reset. Next request will retry Gemini.');
+    debugPrint('GeminiService: Cooldown reset.');
   }
 
-  /// ---- DETAILED ERROR LOGGING ----
-
-  static void _logDetailedError(String prefix, Object e, [StackTrace? stack]) {
+  static void _logDetailedError(String prefix, Object e) {
     debugPrint('❌ $prefix');
-    debugPrint('   Exception type: ${e.runtimeType}');
-    debugPrint('   Exception message: $e');
+    debugPrint('   Exception: $e');
     debugPrint('   Error type: ${_classifyError(e).name}');
-
-    final msg = e.toString();
-    if (msg.contains('400') || msg.contains('Bad Request')) {
-      debugPrint('   → Likely cause: Invalid model name or malformed request');
-    } else if (msg.contains('401') || msg.contains('Unauthorized') || msg.contains('API_KEY_INVALID')) {
-      debugPrint('   → Likely cause: Invalid API key');
-    } else if (msg.contains('403') || msg.contains('Forbidden') || msg.contains('ACCESS_DENIED')) {
-      debugPrint('   → Likely cause: API key not authorized or quota exceeded');
-    } else if (msg.contains('404') || msg.contains('not found') || msg.contains('NOT_FOUND')) {
-      debugPrint('   → Likely cause: Model not found. The model name may be incorrect.');
-    } else if (msg.contains('429') || msg.contains('quota') || msg.contains('Quota') || msg.contains('RATE_LIMIT')) {
-      debugPrint('   → Likely cause: API quota or rate limit exceeded');
-    } else if (msg.contains('500') || msg.contains('503') || msg.contains('Internal') || msg.contains('Unavailable')) {
-      debugPrint('   → Likely cause: Gemini server error (temporary)');
-    } else if (msg.contains('SocketException') || msg.contains('Connection refused') || msg.contains('No address')) {
-      debugPrint('   → Likely cause: No internet or network blocked');
-    } else if (msg.contains('TimeoutException') || msg.contains('timed out')) {
-      debugPrint('   → Likely cause: Request timed out');
-    } else if (msg.contains('TlsException') || msg.contains('HandshakeException') || msg.contains('certificate')) {
-      debugPrint('   → Likely cause: SSL/TLS failure');
-    } else if (msg.contains('DNS')) {
-      debugPrint('   → Likely cause: DNS resolution failure');
-    }
-
-    if (stack != null) {
-      debugPrint('   Stack trace (first 5 lines):');
-      final lines = stack.toString().split('\n');
-      for (int i = 0; i < (lines.length < 5 ? lines.length : 5); i++) {
-        debugPrint('     ${lines[i]}');
-      }
-    }
   }
-
-  /// ---- ERROR TO USER-FRIENDLY MESSAGE ----
 
   static String _errorToUserMessage(Object e) {
+    if (e is GeminiBackendException && e.userMessage.isNotEmpty) {
+      return e.userMessage;
+    }
     final msg = e.toString();
-
-    if (msg.contains('SocketException') || msg.contains('No address') || msg.contains('Connection refused')) {
+    if (msg.contains('SocketException') || msg.contains('Connection refused')) {
       return GeminiErrorMessages.noInternet;
-    }
-    if (msg.contains('HandshakeException') || msg.contains('TlsException') || msg.contains('certificate')) {
-      return GeminiErrorMessages.sslFailure;
-    }
-    if (msg.contains('DNS') || msg.contains('Name or service not known')) {
-      return GeminiErrorMessages.dnsFailure;
     }
     if (msg.contains('TimeoutException') || msg.contains('timed out')) {
       return GeminiErrorMessages.timeout;
     }
-    if (msg.contains('401') || msg.contains('API_KEY_INVALID') || msg.contains('Unauthorized')) {
+    if (msg.contains('401') || msg.contains('API_KEY_INVALID')) {
       return GeminiErrorMessages.apiKeyInvalid;
     }
-    if (msg.contains('403') || msg.contains('quota') || msg.contains('Quota') || msg.contains('RATE_LIMIT')) {
+    if (msg.contains('429') || msg.contains('quota')) {
       return GeminiErrorMessages.quotaExceeded;
     }
-    if (msg.contains('404') ||
-        msg.contains('not found') ||
-        msg.contains('NOT_FOUND') ||
-        msg.contains('no longer available') ||
-        msg.contains('does not exist')) {
-      return GeminiErrorMessages.modelNotFound;
-    }
-    if (msg.contains('500') || msg.contains('503') || msg.contains('Internal') || msg.contains('Unavailable')) {
+    if (msg.contains('500') || msg.contains('502') || msg.contains('503')) {
       return GeminiErrorMessages.serviceUnavailable;
     }
-    if (msg.contains('400') || msg.contains('Bad Request')) {
-      return GeminiErrorMessages.serviceUnavailable;
-    }
-
     return GeminiErrorMessages.unknown;
   }
 
-  static const String _systemPrompt = '''You are SpendSense AI, an intelligent personal finance assistant.
-
-You help users with:
-• Budget Planning
-• Expense Analysis
-• Savings Suggestions
-• Investment Basics
-• Tax Basics
-• Insurance Guidance
-• Mutual Funds
-• Financial Goals
-• Loans and EMI
-• Subscription Advice
-• Credit Card Guidance
-• General Financial Knowledge
-• Monthly Financial Analysis
-• Spending Optimization
-• Wallet Management
-• Subscription Analysis
-• Monthly Financial Reports
-
-Provide professional, accurate, easy-to-understand responses.
-If calculations are required, perform them.
-If users ask general financial questions, answer naturally.
-Respond conversationally.
-Never mention implementation details.
-Never say you are in "local mode" or "offline mode" - always respond as the AI assistant.''';
-
-  static String _buildFinancialContext({
+  /// Context builder for personalized finance tips.
+  static String buildFinancialContext({
     required List<IncomeModel> incomes,
     required List<ExpenseModel> expenses,
     required List<BudgetModel> budgets,
@@ -383,58 +352,47 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
     final savingsRate = totalIncome > 0 ? ((savings / totalIncome) * 100) : 0;
 
     final buf = StringBuffer();
-    buf.writeln('=== FINANCIAL CONTEXT ===');
-    if (financialPersona != null && financialPersona.isNotEmpty) {
-      final persona = FinancialPersona.fromId(financialPersona);
-      buf.writeln('User Financial Segment: ${persona?.label ?? financialPersona}');
-      if (persona != null) {
-        buf.writeln('Segment Guidance: ${persona.aiGuidance}');
-      }
-      buf.writeln('');
-    }
-    buf.writeln('Total Income: Rs. ${totalIncome.toStringAsFixed(2)}');
-    buf.writeln('Total Expenses: Rs. ${totalExpense.toStringAsFixed(2)}');
-    buf.writeln('Net Savings: Rs. ${savings.toStringAsFixed(2)}');
-    buf.writeln('Savings Rate: ${savingsRate.toStringAsFixed(1)}%');
-    buf.writeln('Health Score: ${healthScore ?? "N/A"}/100');
-    buf.writeln('');
+    buf.writeln('Income: Rs.${totalIncome.toStringAsFixed(0)} | '
+        'Expenses: Rs.${totalExpense.toStringAsFixed(0)} | '
+        'Savings: Rs.${savings.toStringAsFixed(0)} (${savingsRate.toStringAsFixed(0)}%)');
+    if (healthScore != null) buf.writeln('Health: $healthScore/100');
 
-    buf.writeln('CATEGORY BREAKDOWN:');
     final categoryTotals = <String, double>{};
     for (final e in expenses) {
       categoryTotals[e.category] = (categoryTotals[e.category] ?? 0) + e.amount;
     }
-    final sortedCategories = categoryTotals.entries.toList()
+    final sorted = categoryTotals.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    for (final e in sortedCategories) {
-      final pct = totalExpense > 0 ? ((e.value / totalExpense) * 100).toStringAsFixed(0) : '0';
-      buf.writeln('${e.key}: Rs. ${e.value.toStringAsFixed(0)} ($pct%)');
+    if (sorted.isNotEmpty) {
+      buf.writeln('Top: ${sorted.take(3).map((e) => '${e.key} Rs.${e.value.toStringAsFixed(0)}').join(', ')}');
     }
-    buf.writeln('');
-
-    buf.writeln('RECENT TRANSACTIONS:');
-    for (final e in expenses.take(5)) {
-      final d = e.date.toIso8601String().split('T')[0];
-      final desc = e.description.isNotEmpty ? e.description : 'No description';
-      buf.writeln('$d | ${e.category} | Rs. ${e.amount.toStringAsFixed(0)} | $desc');
+    if (budgets.isNotEmpty) {
+      final over = budgets.where((b) => b.isExceeded).length;
+      buf.writeln('Budgets: ${budgets.length} ($over over)');
     }
-    buf.writeln('');
-
-    buf.writeln('BUDGETS:');
-    for (final b in budgets) {
-      final status = b.isExceeded ? '(EXCEEDED)' : '(On track)';
-      buf.writeln('${b.category}: Rs. ${b.spentAmount.toStringAsFixed(0)} / Rs. ${b.budgetAmount.toStringAsFixed(0)} $status');
-    }
-    buf.writeln('');
-
-    buf.writeln('GOALS:');
-    for (final g in goals) {
-      buf.writeln('${g.title}: Rs. ${g.savedAmount.toStringAsFixed(0)} / Rs. ${g.targetAmount.toStringAsFixed(0)} (${(g.progress * 100).toStringAsFixed(0)}%)');
+    if (goals.isNotEmpty) {
+      buf.writeln('Goals: ${goals.length}');
     }
 
-    return buf.toString();
+    final out = buf.toString();
+    return out.length > 500 ? out.substring(0, 500) : out;
   }
 
+  /// ---- SHARED BACKEND PROXY REQUEST PATH ----
+  static Future<String> _requestGeminiText({
+    required String prompt,
+    List<Map<String, String>>? history,
+    required String feature,
+  }) async {
+    return sendGeminiChatRequest(
+      baseUrl: backendBaseUrl,
+      prompt: prompt,
+      history: history ?? const <Map<String, String>>[],
+      timeout: _requestTimeout,
+    );
+  }
+
+  /// Generates savings suggestions through backend Gemini proxy.
   static Future<GeminiResponse> generateSavingsSuggestions({
     required List<IncomeModel> incomes,
     required List<ExpenseModel> expenses,
@@ -444,13 +402,16 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
     String? financialPersona,
   }) async {
     if (!canAttemptRequest) {
+      await refreshBackendStatus();
+    }
+    if (!canAttemptRequest) {
       return GeminiResponse(
         content: '',
         isFromFallback: true,
-        errorMessage: GeminiService.isOnCooldown
+        errorMessage: isOnCooldown
             ? 'Using Local AI while Gemini is temporarily unavailable.'
-            : 'Gemini is not configured.',
-        errorType: GeminiService.lastErrorType,
+            : 'Gemini AI is currently unavailable. Using local suggestions.',
+        errorType: lastErrorType,
       );
     }
 
@@ -462,13 +423,12 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
       goals: goals,
     );
     if (cached != null) {
-      return GeminiResponse(content: cached, isFromCache: true);
+      return GeminiResponse(content: cached, isFromCache: true, isFromFallback: false);
     }
 
     try {
-      debugPrint('Gemini Request Started: savings_suggestions');
       debugPrint('[GEMINI] Request Started: savings_suggestions');
-      final context = _buildFinancialContext(
+      final context = buildFinancialContext(
         incomes: incomes, expenses: expenses, budgets: budgets, goals: goals,
         healthScore: healthScore,
         financialPersona: financialPersona,
@@ -485,14 +445,15 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
           'Rules: Be concise (max 4 sentences). Use Rs. for currency. '
           'Be specific with numbers. Professional but friendly tone. Actionable, not generic.';
 
-      debugPrint('Gemini Request Sent: savings_suggestions');
       final stopwatch = Stopwatch()..start();
-      final response = await _model!.generateContent([Content.text(prompt)]);
+      final text = await _requestGeminiText(
+        prompt: prompt,
+        feature: 'savings_suggestions',
+      );
       stopwatch.stop();
-      debugPrint('Gemini Response Received: savings_suggestions (${stopwatch.elapsedMilliseconds}ms)');
-      final text = response.text?.trim() ?? '';
+      debugPrint('[GEMINI] Response Received: savings_suggestions (${stopwatch.elapsedMilliseconds}ms)');
+
       if (text.isEmpty) {
-        debugPrint('Gemini Error: Empty response for savings_suggestions');
         return const GeminiResponse(content: '', isFromFallback: true);
       }
 
@@ -504,12 +465,11 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
         budgets: budgets,
         goals: goals,
       );
-      return GeminiResponse(content: text);
+      return GeminiResponse(content: text, isFromFallback: false);
     } catch (e) {
       _lastErrorType = _classifyError(e);
       _applyCooldown(_lastErrorType);
       _logDetailedError('GeminiService: Savings suggestions failed', e);
-      debugPrint('Fallback Activated: savings_suggestions -> Local AI');
       return GeminiResponse(
         content: '',
         isFromFallback: true,
@@ -519,6 +479,7 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
     }
   }
 
+  /// Generates concise monthly summary through backend Gemini proxy.
   static Future<GeminiResponse> generateMonthlySummary({
     required List<IncomeModel> incomes,
     required List<ExpenseModel> expenses,
@@ -528,13 +489,16 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
     String? financialPersona,
   }) async {
     if (!canAttemptRequest) {
+      await refreshBackendStatus();
+    }
+    if (!canAttemptRequest) {
       return GeminiResponse(
         content: '',
         isFromFallback: true,
-        errorMessage: GeminiService.isOnCooldown
+        errorMessage: isOnCooldown
             ? 'Using Local AI while Gemini is temporarily unavailable.'
-            : 'Gemini is not configured.',
-        errorType: GeminiService.lastErrorType,
+            : 'Gemini AI is currently unavailable.',
+        errorType: lastErrorType,
       );
     }
 
@@ -546,13 +510,12 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
       goals: goals,
     );
     if (cached != null) {
-      return GeminiResponse(content: cached, isFromCache: true);
+      return GeminiResponse(content: cached, isFromCache: true, isFromFallback: false);
     }
 
     try {
-      debugPrint('Gemini Request Started: monthly_summary');
       debugPrint('[GEMINI] Request Started: monthly_summary');
-            final context = _buildFinancialContext(
+      final context = buildFinancialContext(
         incomes: incomes, expenses: expenses, budgets: budgets, goals: goals,
         healthScore: healthScore,
         financialPersona: financialPersona,
@@ -567,14 +530,15 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
           '4. Encouraging closing statement\n\n'
           'Keep it conversational, professional, and encouraging. Do not use markdown.';
 
-      debugPrint('Gemini Request Sent: monthly_summary');
       final stopwatch = Stopwatch()..start();
-      final response = await _model!.generateContent([Content.text(prompt)]);
+      final text = await _requestGeminiText(
+        prompt: prompt,
+        feature: 'monthly_summary',
+      );
       stopwatch.stop();
-      debugPrint('Gemini Response Received: monthly_summary (${stopwatch.elapsedMilliseconds}ms)');
-      final text = response.text?.trim() ?? '';
+      debugPrint('[GEMINI] Response Received: monthly_summary (${stopwatch.elapsedMilliseconds}ms)');
+
       if (text.isEmpty) {
-        debugPrint('Gemini Error: Empty response for monthly_summary');
         return const GeminiResponse(content: '', isFromFallback: true);
       }
 
@@ -586,12 +550,11 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
         budgets: budgets,
         goals: goals,
       );
-      return GeminiResponse(content: text);
+      return GeminiResponse(content: text, isFromFallback: false);
     } catch (e) {
       _lastErrorType = _classifyError(e);
       _applyCooldown(_lastErrorType);
       _logDetailedError('GeminiService: Monthly summary failed', e);
-      debugPrint('Fallback Activated: monthly_summary -> Local AI');
       return GeminiResponse(
         content: '',
         isFromFallback: true,
@@ -601,7 +564,8 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
     }
   }
 
-    static Future<GeminiResponse> generateGoalRecommendations({
+  /// Generates goal recommendations through backend Gemini proxy.
+  static Future<GeminiResponse> generateGoalRecommendations({
     required List<GoalModel> goals,
     required List<IncomeModel> incomes,
     required List<ExpenseModel> expenses,
@@ -613,9 +577,8 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
     }
 
     try {
-      debugPrint('Gemini Request Started: goal_recommendations');
       debugPrint('[GEMINI] Request Started: goal_recommendations');
-      final context = _buildFinancialContext(
+      final context = buildFinancialContext(
         incomes: incomes, expenses: expenses, budgets: budgets, goals: goals,
         financialPersona: financialPersona,
       );
@@ -625,22 +588,22 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
           'For each goal, provide ONE sentence of specific advice. Then give ONE overall recommendation.\n\n'
           'Keep response concise (3-4 sentences). Be encouraging and actionable.';
 
-      debugPrint('Gemini Request Sent: goal_recommendations');
       final stopwatch = Stopwatch()..start();
-      final response = await _model!.generateContent([Content.text(prompt)]);
+      final text = await _requestGeminiText(
+        prompt: prompt,
+        feature: 'goal_recommendations',
+      );
       stopwatch.stop();
-      debugPrint('Gemini Response Received: goal_recommendations (${stopwatch.elapsedMilliseconds}ms)');
-      final text = response.text?.trim() ?? '';
+      debugPrint('[GEMINI] Response Received: goal_recommendations (${stopwatch.elapsedMilliseconds}ms)');
+
       if (text.isEmpty) {
-        debugPrint('Gemini Error: Empty response for goal_recommendations');
         return const GeminiResponse(content: '', isFromFallback: true);
       }
-      return GeminiResponse(content: text);
+      return GeminiResponse(content: text, isFromFallback: false);
     } catch (e) {
       _lastErrorType = _classifyError(e);
       _applyCooldown(_lastErrorType);
       _logDetailedError('GeminiService: Goal recommendations failed', e);
-      debugPrint('Fallback Activated: goal_recommendations -> Local AI');
       return GeminiResponse(
         content: '',
         isFromFallback: true,
@@ -650,7 +613,8 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
     }
   }
 
-    static Future<GeminiResponse> chat({
+  /// Interactive AI Chat routed through backend Gemini proxy.
+  static Future<GeminiResponse> chat({
     required String message,
     required List<IncomeModel> incomes,
     required List<ExpenseModel> expenses,
@@ -660,95 +624,70 @@ Never say you are in "local mode" or "offline mode" - always respond as the AI a
     List<ChatMessageModel>? history,
     String? financialPersona,
   }) async {
-    // If the model is NOT configured at all, use Local AI.
-    if (!canAttemptRequest) {
-      debugPrint('Gemini Error: Not configured (missing API key or model). Fallback Activated.');
-      return GeminiResponse(
-        content: '',
-        isFromFallback: true,
-        errorMessage: 'Gemini is not configured. Using Local AI.',
-        errorType: GeminiService.lastErrorType,
-      );
+    // If backend status was not yet confirmed ready, re-probe now
+    if (!_backendReady) {
+      await refreshBackendStatus();
     }
 
-    // Forces a retry of Gemini even if a previous cooldown is still active.
-    // A new user message is a new intent, so always attempt Gemini first.
+    // Force retry for a newly typed user message
     resetCooldown();
 
     final sanitized = message.trim();
     final safeMessage = sanitized.length > 500 ? sanitized.substring(0, 500) : sanitized;
 
     try {
-      debugPrint('Gemini Request Started: chat');
-      debugPrint('[GEMINI] Request Started');
-      final context = _buildFinancialContext(
+      final context = buildFinancialContext(
         incomes: incomes, expenses: expenses, budgets: budgets, goals: goals,
         healthScore: healthScore,
         financialPersona: financialPersona,
       );
 
-      // Build prompt with system instructions, financial context, and conversation history.
-      final buffer = StringBuffer();
-      buffer.writeln(_systemPrompt);
-      buffer.writeln('');
-      buffer.writeln('You have access to the user\'s complete financial data:');
-      buffer.writeln('');
-      buffer.writeln(context);
-      buffer.writeln('');
-      buffer.writeln('Guidelines:');
-      buffer.writeln('1. Be helpful and thorough. Answer ANY financial question the user asks.');
-      buffer.writeln('2. Give specific actionable advice based on their actual data');
-      buffer.writeln('3. Use Rs. for currency');
-      buffer.writeln('4. Be encouraging and non-judgmental');
-      buffer.writeln('5. If asked about general financial topics (investments, taxes, insurance, loans, etc.), provide helpful educational information');
-      buffer.writeln('6. Reference their actual numbers when giving advice');
-      buffer.writeln('7. Never make up data - only use what is provided');
-      buffer.writeln('8. For general financial questions, provide practical, accurate advice');
-      buffer.writeln('9. Keep responses concise but informative (3-6 sentences)');
-      buffer.writeln('');
-      buffer.writeln('=== CONVERSATION HISTORY ===');
-      buffer.writeln('(Earlier messages are listed oldest to newest.)');
+      final prompt =
+          'You are SpendSense AI, an intelligent personal finance assistant. Provide helpful, conversational advice (2-5 sentences), and use Rs. for Indian currency amounts.\n$context\nUser: $safeMessage';
 
-      final systemContext = buffer.toString();
-
-      // Build the conversation content parts.
-      // History from Firestore is newest-first; reverse for oldest-first.
       final orderedHistory = (history ?? const <ChatMessageModel>[]).reversed.toList();
-      final contents = <Content>[
-        Content.text(systemContext),
-        for (final h in orderedHistory.take(10)) ...[
-          Content.text(h.question),
-          Content.model([TextPart(h.response)]),
+      final historyPayload = <Map<String, String>>[
+        for (final h in orderedHistory.take(2)) ...[
+          {'role': 'user', 'text': h.question.length > 250 ? h.question.substring(0, 250) : h.question},
+          {'role': 'model', 'text': h.response.length > 250 ? h.response.substring(0, 250) : h.response},
         ],
-        Content.text(safeMessage),
       ];
 
-      debugPrint('Gemini Request Sent: chat (message: "$safeMessage", history: ${history?.length ?? 0} msgs)');
-      debugPrint('[GEMINI] Request Sent');
+      debugPrint('[GEMINI] Request Sent: chat (message: "$safeMessage") target: $backendBaseUrl');
       final stopwatch = Stopwatch()..start();
-      final response = await _model!.generateContent(contents);
+      final text = await sendGeminiChatRequest(
+        baseUrl: backendBaseUrl,
+        prompt: prompt,
+        history: historyPayload,
+        timeout: _requestTimeout,
+      );
       stopwatch.stop();
-      debugPrint('Gemini Response Received: chat (${stopwatch.elapsedMilliseconds}ms)');
-      debugPrint('[GEMINI] Response Received');
-      final text = response.text?.trim() ?? '';
+      debugPrint('[GEMINI] Response Received: chat (${stopwatch.elapsedMilliseconds}ms)');
+
       if (text.isEmpty) {
-        debugPrint('Gemini Error: Empty response for chat');
-        return const GeminiResponse(
-          content: '',
-          isFromFallback: true,
-        );
+        return const GeminiResponse(content: '', isFromFallback: true);
       }
-      debugPrint('Gemini Response Time: ${stopwatch.elapsedMilliseconds}ms');
-      debugPrint('[GEMINI] Response Parsed Successfully');
-      return GeminiResponse(content: text);
+
+      // Successful live response confirms backend and Gemini are ready
+      _backendReady = true;
+      _backendReachable = true;
+      _geminiConfigured = true;
+      _connectionSuccessful = true;
+      ApiConfig.setActiveBaseUrl(backendBaseUrl);
+
+      return GeminiResponse(content: text, isFromFallback: false);
     } catch (e) {
       _lastErrorType = _classifyError(e);
       _applyCooldown(_lastErrorType);
-      _logDetailedError('GeminiService: Chat failed (Gemini Error - exact exception)', e);
-      debugPrint('[GEMINI] Request Failed');
-      debugPrint('[GEMINI] Error Type: ${_lastErrorType.name}');
-      debugPrint('[GEMINI] Error Message: ${_errorToUserMessage(e)}');
-      debugPrint('Fallback Activated: chat -> Local AI');
+      _logDetailedError('GeminiService: Chat request failed', e);
+      if (_lastErrorType == GeminiErrorType.networkError ||
+          _lastErrorType == GeminiErrorType.timeout) {
+        if (ApiConfig.customBaseUrl == null) {
+          ApiConfig.resetActiveBaseUrl();
+        }
+        _backendReady = false;
+        _backendReachable = false;
+      }
       return GeminiResponse(
         content: '',
         isFromFallback: true,

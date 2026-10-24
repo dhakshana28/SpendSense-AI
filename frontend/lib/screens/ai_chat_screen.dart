@@ -10,6 +10,8 @@ import '../providers/expense_provider.dart';
 import '../providers/budget_provider.dart';
 import '../providers/goal_provider.dart';
 import '../providers/user_provider.dart';
+import '../services/api_config.dart';
+import '../services/ai/gemini_backend_client.dart';
 
 class AIChatScreen extends StatefulWidget {
   const AIChatScreen({super.key});
@@ -124,21 +126,29 @@ class _AIChatScreenState extends State<AIChatScreen> {
     });
     _scrollToBottom();
 
-    final response = await aiProvider.sendChatMessage(
-      message: text,
-      incomes: incomeProvider.incomeList,
-      expenses: expenseProvider.expenses,
-      budgets: budgetProvider.budgets,
-      goals: goalProvider.goals,
-      financialPersona: userProvider.persona,
-    );
+    String responseText;
+    try {
+      responseText = await aiProvider.sendChatMessage(
+        message: text,
+        incomes: incomeProvider.incomeList,
+        expenses: expenseProvider.expenses,
+        budgets: budgetProvider.budgets,
+        goals: goalProvider.goals,
+        financialPersona: userProvider.persona,
+      );
+    } catch (e) {
+      // Safety net: never leave the loading bubble on screen forever.
+      debugPrint('AI Chat: unexpected error: $e');
+      responseText = 'Sorry, something went wrong while contacting the AI '
+          'service. Please try again.';
+    }
 
     if (!mounted) return;
 
     setState(() {
       _messages.removeLast();
       _messages.add(_ChatBubble(
-        text: response,
+        text: responseText,
         isUser: false,
         timestamp: DateTime.now(),
         isFromFallback: aiProvider.isUsingLocalFallback,
@@ -174,6 +184,14 @@ class _AIChatScreenState extends State<AIChatScreen> {
       appBar: AppBar(
         title: const Text('AI Assistant'),
         actions: [
+          IconButton(
+            icon: Icon(
+              aiProvider.isGeminiConfigured ? Icons.cloud_done : Icons.cloud_off,
+              color: aiProvider.isGeminiConfigured ? Colors.greenAccent : Colors.orangeAccent,
+            ),
+            tooltip: 'AI Server: ${ApiConfig.baseUrl}',
+            onPressed: () => _showServerConfigDialog(context, aiProvider),
+          ),
           if (aiProvider.chatHistory.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.clear_all),
@@ -224,6 +242,15 @@ class _AIChatScreenState extends State<AIChatScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
+                  ),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.settings_ethernet, size: 16),
+                    label: const Text('Server Settings', style: TextStyle(fontSize: 12)),
+                    onPressed: () => _showServerConfigDialog(context, aiProvider),
                   ),
                 ],
               ),
@@ -468,17 +495,57 @@ class _AIChatScreenState extends State<AIChatScreen> {
                 ),
               ),
             if (!message.isUser) ...[
-              if (message.isFromFallback)
+              if (message.isFromFallback) ...[
                 Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    '⚠️ Local AI response',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isDark ? const Color(0xFFFFC107) : const Color(0xFF856404),
-                    ),
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 13,
+                        color: isDark ? const Color(0xFFFFC107) : const Color(0xFF856404),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Local AI fallback response',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? const Color(0xFFFFC107) : const Color(0xFF856404),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 4),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.refresh, size: 14, color: Color(0xFF6C63FF)),
+                        label: const Text('Retry with Gemini', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        backgroundColor: isDark ? const Color(0xFF2A2A45) : const Color(0xFFEEEEFF),
+                        side: BorderSide(color: const Color(0xFF6C63FF).withValues(alpha: 0.4)),
+                        onPressed: () {
+                          final question = _findUserQuestionFor(message);
+                          if (question != null) {
+                            _sendMessage(retryText: question);
+                          }
+                        },
+                      ),
+                      ActionChip(
+                        avatar: const Icon(Icons.settings_ethernet, size: 14, color: Colors.orangeAccent),
+                        label: const Text('Server Settings', style: TextStyle(fontSize: 12)),
+                        backgroundColor: isDark ? const Color(0xFF352C1E) : const Color(0xFFFFF8E7),
+                        side: BorderSide(color: Colors.orange.withValues(alpha: 0.4)),
+                        onPressed: () => _showServerConfigDialog(context, context.read<AIProvider>()),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -518,6 +585,214 @@ class _AIChatScreenState extends State<AIChatScreen> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  void _showServerConfigDialog(BuildContext context, AIProvider aiProvider) {
+    final currentCustom = ApiConfig.customBaseUrl ?? '';
+    final controller = TextEditingController(text: currentCustom.isNotEmpty ? currentCustom : ApiConfig.baseUrl);
+    final authController = TextEditingController(text: ApiConfig.authKey);
+    String probeResult = '';
+    bool isProbing = false;
+    bool probeSuccess = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[400],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        const Icon(Icons.cloud_sync, color: Color(0xFF6C63FF), size: 24),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'AI Server Configuration',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Active URL: ${ApiConfig.baseUrl}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: aiProvider.isGeminiConfigured ? Colors.green : Colors.orange,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Use remote hosting (e.g. Render) to keep Gemini working 24/7 even with your laptop turned off.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: controller,
+                      decoration: InputDecoration(
+                        labelText: 'Backend URL (Production HTTPS / Local)',
+                        hintText: 'https://spendsense-ai-backend.onrender.com',
+                        prefixIcon: const Icon(Icons.link),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: authController,
+                      decoration: InputDecoration(
+                        labelText: 'Backend Auth Key (Optional)',
+                        hintText: 'ss_key_...',
+                        prefixIcon: const Icon(Icons.security),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (probeResult.isNotEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: probeSuccess
+                              ? (isDark ? const Color(0xFF1E3A2B) : const Color(0xFFD4EDDA))
+                              : (isDark ? const Color(0xFF3A1E1E) : const Color(0xFFF8D7DA)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          probeResult,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: probeSuccess
+                                ? (isDark ? const Color(0xFF4CAF50) : const Color(0xFF155724))
+                                : (isDark ? const Color(0xFFFF5252) : const Color(0xFF721C24)),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: isProbing
+                                ? null
+                                : () async {
+                                    final target = controller.text.trim();
+                                    if (target.isEmpty) return;
+                                    setSheetState(() {
+                                      isProbing = true;
+                                      probeResult = target.startsWith('https://')
+                                          ? 'Testing connection (allowing up to 15s for cloud cold start)...'
+                                          : 'Testing connection...';
+                                    });
+                                    final health = await fetchBackendHealth(
+                                      baseUrl: target,
+                                      timeout: const Duration(seconds: 15),
+                                    );
+                                    setSheetState(() {
+                                      isProbing = false;
+                                      if (health.reachable) {
+                                        probeSuccess = true;
+                                        probeResult = health.geminiConfigured
+                                            ? '✓ Online & Ready! Model: ${health.model}'
+                                            : '⚠️ Backend reachable, but GEMINI_API_KEY is not set on server.';
+                                      } else {
+                                        probeSuccess = false;
+                                        probeResult = target.startsWith('https://')
+                                            ? '✗ Could not reach server at $target. If hosted on Render free tier, verify service status in Render dashboard.'
+                                            : '✗ Could not reach server at $target. Check your network or server status.';
+                                      }
+                                    });
+                                  },
+                            icon: isProbing
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.network_check, size: 18),
+                            label: const Text('Test Connection'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF6C63FF),
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () async {
+                              final target = controller.text.trim();
+                              final authKey = authController.text.trim();
+                              await ApiConfig.setCustomBaseUrl(target.isEmpty ? null : target);
+                              await ApiConfig.setCustomAuthKey(authKey.isEmpty ? null : authKey);
+                              await aiProvider.initializeGemini();
+                              if (ctx.mounted) {
+                                Navigator.pop(ctx);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Server set to ${ApiConfig.baseUrl}'),
+                                    backgroundColor: const Color(0xFF6C63FF),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.check, size: 18),
+                            label: const Text('Save & Use'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: TextButton(
+                        onPressed: () async {
+                          controller.clear();
+                          authController.clear();
+                          await ApiConfig.setCustomBaseUrl(null);
+                          await ApiConfig.setCustomAuthKey(null);
+                          await aiProvider.initializeGemini();
+                          if (ctx.mounted) {
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Reset to auto-discovered defaults')),
+                            );
+                          }
+                        },
+                        child: const Text('Reset to Defaults', style: TextStyle(color: Colors.grey)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
