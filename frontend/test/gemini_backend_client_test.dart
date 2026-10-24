@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/services/ai/gemini_backend_client.dart';
+import 'package:frontend/services/api_config.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Spins up a real loopback HTTP server so the client exercises actual
 /// sockets, headers and JSON encoding instead of a mocked transport.
@@ -27,11 +29,19 @@ class _TestBackend {
   /// HTTP methods used, in order.
   final List<String> methods = [];
 
+  /// Inbound HTTP request headers, in order.
+  final List<Map<String, String>> recordedHeaders = [];
+
   Future<String> start() async {
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     _server.listen((req) async {
       paths.add(req.uri.path);
       methods.add(req.method);
+      final headerMap = <String, String>{};
+      req.headers.forEach((name, values) {
+        headerMap[name.toLowerCase()] = values.join(', ');
+      });
+      recordedHeaders.add(headerMap);
       final raw = await utf8.decoder.bind(req).join();
       bodies.add(raw.isEmpty ? null : jsonDecode(raw) as Map<String, dynamic>);
 
@@ -384,6 +394,55 @@ void main() {
       );
     });
   });
+
+  group('ApiConfig & Backend Authentication', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      ApiConfig.setCustomBaseUrlSync(null);
+    });
+
+    test('transmits X-SpendSense-Auth-Key header with the configured auth key', () async {
+      final backend = _TestBackend(
+        () => (status: 200, body: jsonEncode({'response': 'Auth OK'})),
+      );
+      final baseUrl = await backend.start();
+
+      await ApiConfig.setCustomAuthKey('test_secure_token_abc123');
+
+      final res = await sendGeminiChatRequest(
+        baseUrl: baseUrl,
+        prompt: 'test prompt',
+      );
+
+      expect(res, 'Auth OK');
+      expect(backend.recordedHeaders.single['x-spendsense-auth-key'], 'test_secure_token_abc123');
+
+      await ApiConfig.setCustomAuthKey(null);
+      await backend.stop();
+    });
+
+    test('persists custom auth key in SharedPreferences and loads it correctly', () async {
+      SharedPreferences.setMockInitialValues({});
+      await ApiConfig.setCustomAuthKey('my_custom_secret_key');
+      expect(ApiConfig.authKey, 'my_custom_secret_key');
+
+      // Reset in-memory override and verify it reloads from persistent prefs
+      await ApiConfig.loadSavedUrl();
+      expect(ApiConfig.authKey, 'my_custom_secret_key');
+
+      // Clear key and verify restoration to default
+      await ApiConfig.setCustomAuthKey(null);
+      expect(ApiConfig.authKey, ApiConfig.defaultProductionAuthKey);
+    });
+
+    test('prioritizes remote Render HTTPS backend over local development loopbacks', () {
+      final candidates = ApiConfig.candidateBaseUrls;
+      expect(candidates, isNotEmpty);
+      expect(candidates.first, startsWith('https://'));
+      expect(candidates.contains(ApiConfig.defaultProductionBackendUrl), isTrue);
+    });
+  });
 }
+
 
 

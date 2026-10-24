@@ -84,11 +84,12 @@ void main() {
     setUp(() async {
       mockBackend = _MockBackendServer();
       backendUrl = await mockBackend.start();
-      ApiConfig.setActiveBaseUrl(backendUrl);
+      ApiConfig.setCustomBaseUrlSync(backendUrl);
       GeminiService.resetCooldown();
     });
 
     tearDown(() async {
+      ApiConfig.setCustomBaseUrlSync(null);
       await mockBackend.stop();
     });
 

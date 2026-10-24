@@ -36,6 +36,12 @@ class ApiConfig {
     defaultValue: '',
   );
 
+  /// Default production remote HTTPS URL deployed on Render.
+  static const String defaultProductionBackendUrl = 'https://spendsense-ai-backend.onrender.com';
+
+  /// Default production auth key matching the secure backend deployment.
+  static const String defaultProductionAuthKey = 'ss_key_8e4f9b2d1c6a7e305928416d8a7c2e0b';
+
   static String? _customBaseUrl;
   static String? _customAuthKey;
   static String? _activeBaseUrl;
@@ -110,9 +116,10 @@ class ApiConfig {
       return _dartDefineAuthKey;
     }
     if (dotenv.isInitialized) {
-      return (dotenv.env['BACKEND_AUTH_KEY'] ?? '').trim();
+      final key = (dotenv.env['BACKEND_AUTH_KEY'] ?? '').trim();
+      if (key.isNotEmpty) return key;
     }
-    return '';
+    return defaultProductionAuthKey;
   }
 
   /// Synchronous setter for in-memory / test overrides.
@@ -150,7 +157,7 @@ class ApiConfig {
       list.add(trimTrailingSlash(_customBaseUrl!));
     }
 
-    // 2. Production Remote HTTPS URL (from dart-define or .env)
+    // 2. Production Remote HTTPS URL (from dart-define, .env, or default constant)
     if (_dartDefinePublicUrl.isNotEmpty) {
       list.add(trimTrailingSlash(_dartDefinePublicUrl));
     }
@@ -167,34 +174,47 @@ class ApiConfig {
     if (_dartDefineBaseUrl.isNotEmpty) list.add(trimTrailingSlash(_dartDefineBaseUrl));
     if (envBase.isNotEmpty) list.add(trimTrailingSlash(envBase));
 
+    // Default remote production HTTPS URL on Render
+    list.add(defaultProductionBackendUrl);
+
     // 3. Explicit active URL if already resolved
     if (_activeBaseUrl != null && _activeBaseUrl!.isNotEmpty) {
       list.add(trimTrailingSlash(_activeBaseUrl!));
     }
 
-    // 4. Local Development Targets (LAN / Loopback / USB / Emulator)
-    if (_dartDefineLanUrl.isNotEmpty) {
-      list.add(trimTrailingSlash(_dartDefineLanUrl));
-    }
-    if (envLan.isNotEmpty) list.add(trimTrailingSlash(envLan));
+    // 4. Local Development Targets (LAN / Loopback / USB / Emulator) - dev only
+    if (!kReleaseMode) {
+      if (_dartDefineLanUrl.isNotEmpty) {
+        list.add(trimTrailingSlash(_dartDefineLanUrl));
+      }
+      if (envLan.isNotEmpty) list.add(trimTrailingSlash(envLan));
 
-    if (kIsWeb) {
-      list.add('http://localhost:8000');
-      list.add('http://127.0.0.1:8000');
-    } else if (defaultTargetPlatform == TargetPlatform.android) {
-      // Physical Android phone over USB (requires `adb reverse tcp:8000 tcp:8000`)
-      list.add('http://127.0.0.1:8000');
-      // Android emulator reaches host loopback via 10.0.2.2
-      list.add('http://10.0.2.2:8000');
-      list.add('http://10.0.3.2:8000');
-      list.add('http://localhost:8000');
-    } else {
-      list.add('http://localhost:8000');
-      list.add('http://127.0.0.1:8000');
+      if (kIsWeb) {
+        list.add('http://localhost:8000');
+        list.add('http://127.0.0.1:8000');
+      } else if (defaultTargetPlatform == TargetPlatform.android) {
+        // Physical Android phone over USB (requires `adb reverse tcp:8000 tcp:8000`)
+        list.add('http://127.0.0.1:8000');
+        // Android emulator reaches host loopback via 10.0.2.2
+        list.add('http://10.0.2.2:8000');
+        list.add('http://10.0.3.2:8000');
+        list.add('http://localhost:8000');
+      } else {
+        list.add('http://localhost:8000');
+        list.add('http://127.0.0.1:8000');
+      }
     }
 
-    // On Android & Web, ensure any remote HTTPS URL takes priority over local dev loopback/LAN
+    // Preserve custom URL at top priority if explicitly specified by user or test
     final distinct = list.map(trimTrailingSlash).toSet().toList();
+    if (_customBaseUrl != null && _customBaseUrl!.isNotEmpty) {
+      final custom = trimTrailingSlash(_customBaseUrl!);
+      distinct.remove(custom);
+      final httpsUrls = distinct.where((u) => u.startsWith('https://')).toList();
+      final otherUrls = distinct.where((u) => !u.startsWith('https://')).toList();
+      return [custom, ...httpsUrls, ...otherUrls];
+    }
+
     final httpsUrls = distinct.where((u) => u.startsWith('https://')).toList();
     final otherUrls = distinct.where((u) => !u.startsWith('https://')).toList();
     return [...httpsUrls, ...otherUrls];
@@ -209,7 +229,7 @@ class ApiConfig {
     if (candidates.isNotEmpty) {
       return candidates.first;
     }
-    return 'http://localhost:8000';
+    return defaultProductionBackendUrl;
   }
 
   static String get healthUrl => '$baseUrl/health';
